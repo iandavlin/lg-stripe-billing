@@ -183,18 +183,6 @@ CREATE TABLE entitlements (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
--- Webhook idempotency
--- ============================================================
-
-CREATE TABLE processed_events (
-    stripe_event_id VARCHAR(64)  PRIMARY KEY,
-    event_type      VARCHAR(64)  NOT NULL,
-    result          VARCHAR(512) NULL,
-    processed_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_processed_at (processed_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- ============================================================
 -- Audit log — anything that changes access or money
 -- ============================================================
 

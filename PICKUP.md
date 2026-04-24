@@ -1,87 +1,78 @@
-# Pickup — lg-stripe-billing Phase 2
+# Pickup — lg-stripe-billing
 
-*Last worked: 2026-04-22*
+*Last worked: 2026-04-24*
 
-## Where we left off
+## Architecture (current)
 
-Phase 1 (in-place WP refactor) is done and tested end-to-end. Phase 2 (extract to standalone Slim service) has a working scaffold.
+Two services, sharing one database:
 
-**Verified today:**
-- Checkout REST → session create → Stripe payment → `handleReturn` → user meta set. All green.
-- Fixed regression: `LGSM_WP_User_Repository::setRole()` was calling `$user->set_role()` which *replaces* all roles. Now swaps only `looth1–4` tiers, preserves `administrator` / `bbp_participant`. Admin role was restored on user 1.
-- Phase 2 scaffold boots: `GET /health` returns `200 OK` with JSON body.
+- **Slim app (this repo)** — user-facing HTTP only.
+  - `POST /v1/checkout` — create Stripe Checkout session
+  - `POST /v1/portal` — create Customer Portal session
+  - `GET  /v1/return` — handle Stripe redirect, immediate grant
+  - `GET  /health`
+  - Reads/writes `lg_membership` on the synchronous user paths.
+  - **Does not** receive Stripe webhooks. Does not run cron.
 
-## Scaffold location
+- **WP plugin (`lg-member-sync`, separate repo, not yet built)** — async event processing.
+  - WP cron polls Stripe Events API + Patreon OAuth
+  - Writes to `lg_membership` (customers, subscriptions, entitlements)
+  - Owns role arbitration (`lg_role_sources` table)
+  - Only place that writes `wp_capabilities`
+  - Absorbs the existing Patreon plugin's polling logic
 
-- **Local repo:** `C:\Users\ianda\git-repos\lg-stripe-billing\` (git-init'd, one initial commit)
-- **Server:** `ccdev@54.157.13.77:~/lg-stripe-billing/` (composer install already ran)
+Source of truth for access checks: `lg_membership.entitlements`. WP `wp_capabilities` is a synced projection of that.
 
-## Architecture decisions (locked in)
+## Slim status
 
-- **URL:** `/billing/*` subpath on loothgroup.com (nginx routes to new php-fpm pool).
-- **DB:** separate `lg_membership` MySQL database, same MySQL instance. Reads `wp_users` / `wp_usermeta` cross-DB during transition.
-- **Deploy:** git-pull on server for now. Build artifacts later if it hurts.
-- **No Docker** for now. Plain php-fpm pool + nginx location block.
-- **Role sync:** Slim writes role changes back to `wp_usermeta.wp_capabilities` during transition so WP role-based gating keeps working.
-- **Repo naming:** `lg-stripe-billing` (short, matches URL path).
+Done:
+- Slim 4 scaffold + DI + `/health` endpoint.
+- Domain DTOs (`Customer`, `Subscription`, `Entitlement`).
+- Repository interfaces (`CustomerRepository`, `SubscriptionRepository`, `EntitlementRepository`, `ProductRepository`).
+- `SettingsStore` interface (trimmed to user-facing API needs).
+- `StripeGateway` interface (typed facade over Stripe SDK).
+- Core services: `CheckoutService`, `CustomerManager`, `EntitlementManager`.
+- Schema (`db/schema.sql` + `db/migrations/001_init.sql`) — entitlement-centric, future-proof for tickets / lifetime memberships / regional pricing.
+- System map doc at `docs/system-map.html`.
 
-## Next steps (in order)
+Removed during pivot to polling architecture (commit `cleanup`):
+- `WebhookHandler`, `Reconciler`, `WpRoleSync`, `IdempotencyStore`,
+  `UserRecord`/`UserRepository`/`UserCreateException` (WP-bridge legacy),
+  `Notifier`, and the `processed_events` table.
 
-1. **Port interfaces** from plugin → `src/Contracts/`
-   - Source: `/var/www/dev/wp-content/plugins/lg-stripe-membership/includes/contracts/`
-   - Five files: `interface-user-repository.php`, `interface-settings-store.php`, `interface-notifier.php`, `interface-idempotency-store.php`, `class-user-record.php`, `class-user-create-exception.php`
-   - Convert to namespaced PHP (`LGSB\Contracts\*`), drop `LGSM_` prefix, use proper interface/class syntax.
+## Next steps
 
-2. **Port core classes** from plugin → `src/Core/`
-   - `class-user-manager.php` → `UserManager.php`
-   - `class-webhook-handler.php` → `WebhookHandler.php` (dispatch logic only, HTTP layer goes in controller)
-   - `class-checkout.php` session-creation logic → `CheckoutService.php` (HTTP layer goes in controller)
-   - `class-reconciler.php` → `Reconciler.php` (no more WP cron; drive from systemd timer or cron)
-
-3. **Build Slim-native adapters** → `src/Adapters/`
-   - `PdoUserRepository` — reads `wp_users` initially; writes new `members` table when it exists
-   - `EnvSettingsStore` — reads from `$_ENV` (loaded from `.env` at boot)
-   - `MailNotifier` — SES or Postmark; FluentCRM tagging via WP REST call
-   - `PdoIdempotencyStore` — dedicated `processed_events` table
-
-4. **Wire routes** in `config/routes.php`
-   - `POST /checkout` → create session
-   - `GET /return` → handle Stripe return
-   - `POST /portal` → customer portal
-   - `POST /webhook` → Stripe webhook
-
-5. **Stand up the pool + vhost on the server** (sudo steps — you run)
-   - `/etc/php/8.3/fpm/pool.d/lg-billing.conf` (new pool, own user `lg-billing`)
-   - nginx: add `location ^~ /billing/ { ... }` block to the loothgroup.com vhost, proxy to the pool
-   - `systemctl restart php8.3-fpm nginx`
-
-6. **Cutover-safe rollout**
-   - Keep plugin running in WP. Point Stripe webhook at the Slim `/billing/webhook` endpoint first (reversible in Stripe dashboard).
-   - Monitor parity with plugin's webhook log for a few days.
-   - Move checkout UI next. Retire plugin last.
-
-## Open questions for next session
-
-- Do we copy the JS/CSS from `assets/` into the Slim service (served as static from `/billing/assets/`), or keep the plugin shortcode rendering the embed and just call the Slim service for checkout session creation? **Probably the latter during transition** — WP still hosts the join page UI, Slim handles server-side Stripe calls.
-- JWT auth between WP and Slim, or session-cookie bridge, or just IP-trust localhost-to-localhost calls during transition? Simplest = trust localhost.
-- `lg_membership` DB schema — `members`, `subscriptions`, `processed_events`. Design before coding adapters.
-
-## Files of interest
-
-- Plugin (source of truth for business logic): `/var/www/dev/wp-content/plugins/lg-stripe-membership/includes/`
-- Scaffold: `C:\Users\ianda\git-repos\lg-stripe-billing\`
-- Extraction plan (original): `/var/www/dev/wp-content/plugins/lg-stripe-membership/EXTRACTION-PLAN.md`
+1. **Adapters** in `src/Adapters/`:
+   - `PdoCustomerRepository`
+   - `PdoSubscriptionRepository`
+   - `PdoEntitlementRepository`
+   - `PdoProductRepository` (region-aware price resolution)
+   - `LiveStripeGateway`
+   - `EnvSettingsStore`
+2. **Routes + controllers**: `/v1/checkout`, `/v1/portal`, `/v1/return`, plus a small `/v1/tiers` for the frontend join-page.
+3. **DI wiring** in `config/container.php`.
+4. **Apply schema** to dev MySQL: `mysql lg_membership < db/schema.sql`.
+5. **Seed** initial products + prices + region tags (one-off SQL script).
+6. **nginx + php-fpm pool** for `/billing/` subpath (sudo on EC2).
+7. **End-to-end test** of checkout flow (without poller — checkout session + return URL grant).
+8. **WP plugin** in a separate repo. Polling + arbiter + role writes.
+9. **Cutover**: stop the old plugin's webhook, retire it after the new poller is solid.
 
 ## Server access
 
 `ssh -i "C:/Users/ianda/git-repos/ssh keys/ccdev_key" ccdev@54.157.13.77`
 
-## Smoke test the scaffold
+## Local dev
 
 ```bash
-ssh -i "..." ccdev@54.157.13.77
-cd ~/lg-stripe-billing
+cd C:/Users/ianda/git-repos/lg-stripe-billing
+php -l $(find src -name '*.php')   # syntax check
+# composer install — already done on server
+```
+
+## Smoke test (when adapters exist)
+
+```bash
 php -S 127.0.0.1:9099 -t public &
 curl http://127.0.0.1:9099/health
-# → {"status":"ok","service":"lg-stripe-billing",...}
 ```

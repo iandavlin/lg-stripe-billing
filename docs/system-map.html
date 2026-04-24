@@ -8,7 +8,9 @@
     --bg: #fafaf8; --ink: #1f1d1a; --dim: #6a6660; --line: #d8d3ca;
     --tag-core: #2e6fb8; --tag-adapt: #a8622c; --tag-domain: #3f8052;
     --tag-bridge: #7844a6; --tag-contract: #7a7a7a; --tag-http: #b23f6a;
+    --tag-wp: #1e7a6a;
     --accent-bg: #f1ede5;
+    --slim-bg: #eef4fb; --wp-bg: #f1f6ee;
   }
   * { box-sizing: border-box; }
   body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -30,19 +32,20 @@
   .tag.bridge { background: var(--tag-bridge); }
   .tag.contract { background: var(--tag-contract); }
   .tag.http { background: var(--tag-http); }
+  .tag.wp { background: var(--tag-wp); }
 
-  .layers { display: grid; grid-template-columns: 180px 1fr; gap: 0; margin: 1em 0; }
-  .layers .label { background: var(--accent-bg); padding: 10px 12px; border-right: 2px solid var(--line);
-                   font-weight: 600; font-size: 13px; display: flex; align-items: center; }
-  .layers .cell { padding: 10px 12px; border-bottom: 1px solid var(--line); }
-  .layers .label { border-bottom: 1px solid var(--line); }
-  .layers .row-header { background: var(--ink); color: var(--bg); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; padding: 6px 12px; }
+  .twoup { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; margin: 1em 0; }
+  .twoup .col { padding: 12px 16px; border-radius: 6px; }
+  .twoup .col.slim { background: var(--slim-bg); }
+  .twoup .col.wp   { background: var(--wp-bg); }
+  .twoup h3 { margin-top: 0; font-size: 14px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); }
+  .twoup ul { padding-left: 1.2em; margin: .4em 0; }
 
   .flow { background: var(--accent-bg); padding: 1em 1.2em; border-left: 4px solid var(--tag-core);
           margin: 1em 0; border-radius: 0 6px 6px 0; }
-  .flow.webhook { border-left-color: var(--tag-adapt); }
-  .flow.recon   { border-left-color: var(--tag-bridge); }
-  .flow.refund  { border-left-color: var(--tag-http); }
+  .flow.poll  { border-left-color: var(--tag-wp); }
+  .flow.recon { border-left-color: var(--tag-bridge); }
+  .flow.refund { border-left-color: var(--tag-http); }
   .flow h3 { margin-top: 0; }
   .flow ol { padding-left: 1.4em; }
   .flow ol > li { margin: .4em 0; }
@@ -54,6 +57,12 @@
   .small { font-size: 12px; color: var(--dim); }
   .pill { display: inline-block; background: var(--accent-bg); border: 1px solid var(--line);
           padding: 1px 7px; border-radius: 10px; font-size: 12px; margin: 1px 2px; }
+
+  .arrow-diagram {
+    font: 13px/1.5 "SF Mono", Consolas, monospace;
+    background: var(--accent-bg); padding: 1em; border-radius: 6px;
+    white-space: pre; overflow-x: auto;
+  }
 </style>
 </head>
 <body>
@@ -67,134 +76,134 @@
   <span class="tag core">Core</span>
   <span class="tag domain">Domain</span>
   <span class="tag adapt">Adapter</span>
-  <span class="tag bridge">Bridge (WP)</span>
+  <span class="tag wp">WP plugin</span>
   <span class="tag contract">Contract</span>
 </div>
 
 <!-- ============================================================ -->
-<h2>1. Layer diagram</h2>
-<p class="small">Top talks to bottom. Data flows down to the DB and out to Stripe; events flow back up through interfaces.</p>
+<h2>1. Two services, one database</h2>
 
-<div class="layers">
-  <div class="row-header">Layer</div>
-  <div class="row-header">What lives here</div>
-
-  <div class="label">Entry (HTTP)</div>
-  <div class="cell">
-    <span class="tag http">Controller</span> <code>public/index.php</code> → Slim routes<br>
-    <code>/v1/checkout</code>, <code>/v1/return</code>, <code>/v1/portal</code>, <code>/v1/webhook</code>, <code>/health</code>
+<div class="twoup">
+  <div class="col slim">
+    <h3>Slim app — user-facing API</h3>
+    <p>Synchronous HTTP. The browser talks to this. Repo: <code>lg-stripe-billing</code> (this one).</p>
+    <ul>
+      <li><code>POST /v1/checkout</code> — create Stripe Checkout session</li>
+      <li><code>POST /v1/portal</code> — create Customer Portal session</li>
+      <li><code>GET  /v1/return</code> — Stripe redirect handler, immediate grant</li>
+      <li><code>GET  /v1/tiers</code> — frontend tier listing</li>
+      <li><code>GET  /health</code></li>
+    </ul>
+    <p class="small">No webhooks. No cron. Reads/writes <code>lg_membership</code> on user-driven paths only.</p>
   </div>
-
-  <div class="label">Orchestration (Core)</div>
-  <div class="cell">
-    <span class="tag core">CheckoutService</span> creates Stripe sessions (normal + portal).<br>
-    <span class="tag core">WebhookHandler</span> dispatches 5–7 Stripe events.<br>
-    <span class="tag core">CustomerManager</span> find-or-create by Stripe ID &gt; email.<br>
-    <span class="tag core">EntitlementManager</span> grants/revokes access rows.<br>
-    <span class="tag core">Reconciler</span> periodic drift correction (cron).
-  </div>
-
-  <div class="label">Model (Domain)</div>
-  <div class="cell">
-    <span class="tag domain">Customer</span> <span class="tag domain">Subscription</span> <span class="tag domain">Entitlement</span> — immutable DTOs.<br>
-    Repository interfaces: <span class="tag contract">CustomerRepository</span> <span class="tag contract">SubscriptionRepository</span> <span class="tag contract">EntitlementRepository</span> <span class="tag contract">ProductRepository</span>
-  </div>
-
-  <div class="label">Stripe facade</div>
-  <div class="cell">
-    <span class="tag contract">StripeGateway</span> interface — the only way Core talks to Stripe.
-  </div>
-
-  <div class="label">WP transition</div>
-  <div class="cell">
-    <span class="tag bridge">WpRoleSync</span> interface — pushes tier changes to <code>wp_usermeta.wp_capabilities</code>.<br>
-    Deletable after WP retirement.
-  </div>
-
-  <div class="label">Adapters</div>
-  <div class="cell">
-    <span class="tag adapt">PdoCustomerRepository</span> <span class="tag adapt">PdoSubscriptionRepository</span>
-    <span class="tag adapt">PdoEntitlementRepository</span> <span class="tag adapt">PdoProductRepository</span>
-    <span class="tag adapt">PdoIdempotencyStore</span> <span class="tag adapt">LiveStripeGateway</span>
-    <span class="tag adapt">EnvSettingsStore</span> <span class="tag adapt">MailNotifier</span>
-    <span class="tag adapt">PdoWpRoleSync</span>
-  </div>
-
-  <div class="label">Infra</div>
-  <div class="cell">
-    MySQL (<code>lg_membership</code>) · Stripe API · <code>looth_dev.wp_usermeta</code> (transitional) · SMTP
+  <div class="col wp">
+    <h3>WP plugin — async event sync</h3>
+    <p>WP cron. Background polling. Repo: <code>lg-member-sync</code> (separate, not yet built).</p>
+    <ul>
+      <li>Polls Stripe Events API (cursor-based)</li>
+      <li>Polls Patreon OAuth (replaces existing patreon plugin)</li>
+      <li>Writes to <code>lg_membership</code> (customers, subscriptions, entitlements)</li>
+      <li>Arbitrates roles via <code>lg_role_sources</code></li>
+      <li>Sole writer of <code>wp_usermeta.wp_capabilities</code></li>
+      <li>Sends welcome email on first provision</li>
+    </ul>
   </div>
 </div>
 
+<div class="arrow-diagram">user → Slim → Stripe (checkout / portal)         user-facing flow
+WP cron → Stripe Events API → arbiter → wp_caps   async catch-up
+WP cron → Patreon OAuth     → arbiter → wp_caps   async catch-up</div>
+
+<p>The two services share one MySQL instance. Slim writes to <code>lg_membership</code> on the synchronous return-URL path; WP plugin writes to it on the polling path. <code>lg_membership.entitlements</code> is the canonical source of truth for "what can this customer do."</p>
+
 <!-- ============================================================ -->
-<h2>2. Database tables</h2>
+<h2>2. Database tables (lg_membership)</h2>
 
 <table>
   <tr><th>Table</th><th>Purpose</th><th>Written by</th><th>Read by</th></tr>
   <tr>
     <td><code>customers</code></td>
     <td>Identity. UUID + email anchored. Optional <code>stripe_customer_id</code>.</td>
-    <td>CustomerManager.findOrCreate</td>
+    <td>Slim (return URL), WP plugin (polling)</td>
     <td>everything downstream</td>
   </tr>
   <tr>
     <td><code>wp_user_bridge</code></td>
-    <td>Map <code>customers.id</code> → WP user ID. Transitional.</td>
-    <td>WpRoleSync (on first sync)</td>
-    <td>WpRoleSync</td>
+    <td>Map <code>customers.id</code> → WP user ID. Transitional, dropped at WP retirement.</td>
+    <td>WP plugin (on first provision)</td>
+    <td>WP plugin (role sync)</td>
   </tr>
   <tr>
     <td><code>products</code></td>
     <td>Cached Stripe products. <code>kind</code> + <code>ref</code> (e.g. <code>membership</code>+<code>looth2</code>).</td>
-    <td>manual seed / admin tool</td>
-    <td>ProductRepository</td>
+    <td>manual seed</td>
+    <td>Slim (CheckoutService), WP plugin</td>
   </tr>
   <tr>
     <td><code>prices</code></td>
     <td>Cached Stripe prices. <code>region_tag</code>, <code>priority</code>, <code>grants_duration_days</code>.</td>
-    <td>manual seed / admin tool</td>
-    <td>ProductRepository</td>
+    <td>manual seed</td>
+    <td>Slim (price resolution), WP plugin</td>
   </tr>
   <tr>
     <td><code>price_regions</code></td>
-    <td>Country → region-tag mapping. Multiple tags per country allowed.</td>
+    <td>Country → region-tag mapping. Many tags per country allowed.</td>
     <td>manual seed</td>
-    <td>ProductRepository.resolvePriceForCountry</td>
+    <td>Slim (region price resolution)</td>
   </tr>
   <tr>
     <td><code>subscriptions</code></td>
     <td>One row per Stripe subscription. History preserved.</td>
-    <td>WebhookHandler via SubscriptionRepository.upsert</td>
-    <td>EntitlementManager, Reconciler</td>
+    <td>WP plugin (poller); Slim (return URL on first checkout)</td>
+    <td>WP plugin, EntitlementManager</td>
   </tr>
   <tr>
     <td><code>orders</code> / <code>order_items</code></td>
     <td>One-time purchases (tickets, lifetime memberships, donations).</td>
-    <td>WebhookHandler (future)</td>
+    <td>WP plugin (poller); Slim (return URL)</td>
     <td>reporting, EntitlementManager</td>
   </tr>
   <tr>
     <td><code>entitlements</code></td>
     <td><b>The single source of truth for "can this customer do X."</b> Every access check reads this.</td>
-    <td>EntitlementManager.grant/revoke</td>
-    <td>WpRoleSync, APIs, audit queries</td>
-  </tr>
-  <tr>
-    <td><code>processed_events</code></td>
-    <td>Webhook dedup. Stores Stripe event IDs we've handled.</td>
-    <td>IdempotencyStore.markProcessed</td>
-    <td>IdempotencyStore.hasProcessed</td>
+    <td>EntitlementManager (Slim + WP)</td>
+    <td>WP plugin (role arbiter), reporting</td>
   </tr>
   <tr>
     <td><code>audit_log</code></td>
     <td>Anything that changes access or money. Forensic trail.</td>
-    <td>all Core services on state change</td>
+    <td>Slim, WP plugin</td>
     <td>admin reporting</td>
   </tr>
 </table>
 
+<p class="small">Note: the <code>processed_events</code> webhook-idempotency table was removed in the polling pivot. Stripe's Events API uses a cursor; that's the dedup mechanism.</p>
+
 <!-- ============================================================ -->
-<h2>3. HTTP endpoints</h2>
+<h2>3. WP plugin internals (lg-member-sync, planned)</h2>
+
+<table>
+  <tr><th>Table / endpoint</th><th>Purpose</th></tr>
+  <tr>
+    <td><code>{prefix}_lg_role_sources</code></td>
+    <td>One row per (user, source). Holds each source's current opinion of the user's tier. Arbiter picks the highest.</td>
+  </tr>
+  <tr>
+    <td><code>{prefix}_lg_event_cursor</code></td>
+    <td>One row per source. Last successfully processed event ID + timestamp. Stripe poller resumes from here.</td>
+  </tr>
+  <tr>
+    <td>WP cron <code>lg_member_sync_tick</code></td>
+    <td>Runs every 5 minutes. Polls both sources, processes events, calls arbiter, writes capabilities.</td>
+  </tr>
+  <tr>
+    <td>Plugin REST endpoint (optional)</td>
+    <td>Admin trigger for manual sync, status dashboard.</td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>4. HTTP endpoints (Slim)</h2>
 
 <table>
   <tr><th>Method + Path</th><th>Controller → Service</th><th>Purpose</th></tr>
@@ -206,7 +215,7 @@
   <tr>
     <td><code>GET  /v1/return</code></td>
     <td>CheckoutController → ReturnHandler</td>
-    <td>Stripe redirects here after checkout. Verifies session, triggers WP login.</td>
+    <td>Stripe redirects here after checkout. Verifies session, immediately grants tier so user feels instant.</td>
   </tr>
   <tr>
     <td><code>POST /v1/portal</code></td>
@@ -214,9 +223,9 @@
     <td>Returns Stripe Customer Portal URL for an authenticated customer.</td>
   </tr>
   <tr>
-    <td><code>POST /v1/webhook</code></td>
-    <td>WebhookController → WebhookHandler.handle</td>
-    <td>Raw Stripe payload + signature header. 2xx on all dedup/handled cases.</td>
+    <td><code>GET  /v1/tiers</code></td>
+    <td>TiersController → ProductRepository</td>
+    <td>Tier metadata for the frontend join-page (name, prices, currency-by-country, role).</td>
   </tr>
   <tr>
     <td><code>GET  /health</code></td>
@@ -226,98 +235,90 @@
 </table>
 
 <!-- ============================================================ -->
-<h2>4. Flow walkthroughs</h2>
+<h2>5. Flow walkthroughs</h2>
 
 <div class="flow">
-  <h3>A. New subscription (Stripe Checkout → webhook → WP role)</h3>
+  <h3>A. Checkout — synchronous user path</h3>
   <ol>
     <li>Frontend <code>POST /v1/checkout</code> with <span class="pill">price_id</span> <span class="pill">email</span> <span class="pill">country</span>.</li>
-    <li><b>CheckoutService</b> asks <b>ProductRepository</b> to resolve price: <code>resolvePriceForCountry</code> may swap to dev/region price.</li>
+    <li><b>CheckoutService</b> resolves regional price via <b>ProductRepository.resolvePriceForCountry</b>.</li>
     <li><b>CheckoutService</b> calls <b>StripeGateway.createCheckoutSession</b>, returns <code>clientSecret</code>.</li>
-    <li>User completes payment in Stripe's embedded form. Stripe redirects to <code>/v1/return</code>.</li>
-    <li>Stripe asynchronously POSTs to <code>/v1/webhook</code>: <code>checkout.session.completed</code>.</li>
-    <li><b>WebhookHandler</b>: signature check → idempotency check → dispatch to <code>onCheckoutCompleted</code>.</li>
-    <li>Retrieve the subscription from Stripe (for the price ID). Look up tier via <b>ProductRepository.tierForPrice</b>.</li>
+    <li>User completes payment in Stripe's embedded form. Stripe redirects to <code>/v1/return?session_id=...</code>.</li>
+    <li><b>ReturnHandler</b> retrieves the session from Stripe, finds tier from price.</li>
     <li><b>CustomerManager.findOrCreate</b> → row in <code>customers</code>.</li>
     <li><b>SubscriptionRepository.upsert</b> → row in <code>subscriptions</code>.</li>
-    <li><b>EntitlementManager.grantMembershipFromSubscription</b> → row in <code>entitlements</code> (<code>kind=membership_tier</code>, <code>source=subscription</code>).</li>
-    <li><b>WpRoleSync.sync(customerId)</b> → cross-DB UPDATE of <code>wp_usermeta.wp_capabilities</code>.</li>
-    <li>Return 200 to Stripe.</li>
+    <li><b>EntitlementManager.grantMembershipFromSubscription</b> → row in <code>entitlements</code>.</li>
+    <li>Slim returns redirect to home / "you're a member" page.</li>
+    <li><i>No role write here.</i> The WP plugin's next poll tick (≤ 5 min) sees the new entitlement and updates <code>wp_capabilities</code>.</li>
   </ol>
-  <p class="tbl">Tables touched: customers · subscriptions · entitlements · processed_events · audit_log · wp_user_bridge · <span class="small">looth_dev.wp_usermeta</span></p>
+  <p class="tbl">Tables touched: customers · subscriptions · entitlements · audit_log</p>
 </div>
 
-<div class="flow webhook">
-  <h3>B. Tier upgrade (monthly looth2 → monthly looth3)</h3>
+<div class="flow poll">
+  <h3>B. WP poller tick (every ~5 min)</h3>
   <ol>
-    <li>User changes plan in Stripe Customer Portal.</li>
-    <li>Stripe fires <code>customer.subscription.updated</code> with new price.</li>
-    <li><b>WebhookHandler.onSubscriptionUpdated</b>: looks up customer by <code>stripe_customer_id</code>.</li>
-    <li><b>SubscriptionRepository.upsert</b> updates the same row in-place (UPSERT keyed on <code>stripe_subscription_id</code>).</li>
-    <li><b>EntitlementManager.grantMembershipFromSubscription</b>: revokes prior <code>membership_tier</code> entitlement sourced from this subscription, grants new one.</li>
-    <li><b>WpRoleSync.sync</b> overwrites <code>wp_capabilities</code> — removes <code>looth2</code>, adds <code>looth3</code>, preserves everything else.</li>
+    <li>WP cron fires <code>lg_member_sync_tick</code>.</li>
+    <li>Read cursor from <code>lg_event_cursor</code>. Call <code>GET /v1/events?starting_after=&lt;cursor&gt;</code> on Stripe API.</li>
+    <li>For each event:
+      <ul>
+        <li><code>checkout.session.completed</code> → noop if Slim already provisioned (row exists), otherwise upsert</li>
+        <li><code>customer.subscription.updated</code> → upsert sub row, recompute entitlement</li>
+        <li><code>customer.subscription.deleted</code> → mark sub canceled, revoke entitlement</li>
+        <li><code>invoice.paid</code> → upsert sub (status, periods)</li>
+        <li><code>invoice.payment_failed</code> → log, no role change</li>
+        <li><code>charge.refunded</code> → revoke entitlement, audit log (handled manually for now)</li>
+      </ul>
+    </li>
+    <li>Update cursor to last processed event ID.</li>
+    <li>For every customer with a state change in this tick: report to arbiter.</li>
+    <li>Arbiter recomputes <code>wp_capabilities</code> based on all sources' opinions, writes <code>wp_usermeta</code>.</li>
+    <li>Same tick polls Patreon OAuth and reports those opinions to the same arbiter.</li>
   </ol>
-  <p class="tbl">Tables touched: subscriptions · entitlements (2 rows affected) · audit_log · <span class="small">wp_usermeta</span></p>
+  <p class="tbl">Tables touched: subscriptions · entitlements · lg_role_sources · wp_usermeta · lg_event_cursor · audit_log</p>
 </div>
 
-<div class="flow webhook">
-  <h3>C. Cancellation (sub ends at period end)</h3>
+<div class="flow recon">
+  <h3>C. Cancellation</h3>
   <ol>
-    <li>User clicks "cancel" in portal. Stripe fires <code>customer.subscription.updated</code> with <code>cancel_at_period_end=true</code>.</li>
-    <li><b>onSubscriptionUpdated</b> upserts sub (flag stored), <b>no role change yet</b> — user still has paid-for access.</li>
-    <li>Period ends. Stripe fires <code>customer.subscription.deleted</code>.</li>
-    <li><b>onSubscriptionDeleted</b>: upsert with <code>status='canceled'</code>, <code>canceled_at=NOW</code>.</li>
+    <li>User clicks "cancel" in Customer Portal. Stripe records <code>cancel_at_period_end=true</code>, fires no immediate role change.</li>
+    <li>Period ends. Stripe records the subscription as <code>deleted</code>.</li>
+    <li>Next poller tick picks up the <code>customer.subscription.deleted</code> event.</li>
     <li><b>EntitlementManager.revokeForSubscription</b> → <code>entitlements.revoked_at = NOW()</code>.</li>
-    <li><b>WpRoleSync.sync</b>: no active tier → writes <code>looth1</code> (lapsed), preserves admin/bbp roles.</li>
+    <li>Arbiter sees Stripe source now reports <code>tier=null</code>; if Patreon also reports null, writes <code>looth1</code> (lapsed). Preserves admin / bbp roles.</li>
   </ol>
 </div>
 
 <div class="flow refund">
-  <h3>D. Refund or chargeback (planned)</h3>
+  <h3>D. Refund — manual for now</h3>
   <ol>
-    <li>Admin refunds via Stripe dashboard. Stripe fires <code>charge.refunded</code> (or <code>charge.dispute.created</code>).</li>
-    <li><b>WebhookHandler.onRefund</b>: find the related order/subscription by charge metadata.</li>
-    <li><b>EntitlementManager.revokeForSubscription</b> or <code>.revokeForOrder</code> (to be added).</li>
-    <li>Write to <code>audit_log</code> with <code>action='refund_revoke'</code> for visibility.</li>
-    <li><b>WpRoleSync.sync</b> → user drops to <code>looth1</code>.</li>
+    <li>User emails support requesting refund.</li>
+    <li>Admin issues refund in Stripe Dashboard.</li>
+    <li>Stripe records <code>charge.refunded</code> event.</li>
+    <li>Next poller tick will eventually consume it. Until automated handling lands, admin can manually revoke entitlement via SQL or admin UI.</li>
   </ol>
-  <p class="tbl"><b>Not yet implemented.</b> Add as part of adapters pass.</p>
-</div>
-
-<div class="flow recon">
-  <h3>E. Reconciler tick (cron, hourly)</h3>
-  <ol>
-    <li>Cron invokes <code>bin/reconcile</code>.</li>
-    <li><b>Reconciler.run</b> → <b>WpRoleSync.syncAll</b>.</li>
-    <li>For each row in <code>wp_user_bridge</code>: compute desired tier from active entitlements, compare against current <code>wp_capabilities</code>, UPDATE if drift found.</li>
-    <li>Returns <code>SyncSummary</code>: checked / updated / unchanged / errors.</li>
-    <li>Summary written to log + (optionally) emailed to admin.</li>
-  </ol>
-  <p class="tbl">Safety net. Catches any webhook that silently failed mid-sync, plus one-time memberships whose <code>expires_at</code> passed with no Stripe event.</p>
+  <p class="tbl">Automated handling deferred — explicit choice.</p>
 </div>
 
 <!-- ============================================================ -->
-<h2>5. Class inventory</h2>
+<h2>6. Class inventory (Slim only)</h2>
 
 <h3>Core <span class="tag core">Core</span></h3>
 <table>
   <tr><th>Class</th><th>Depends on</th><th>Purpose</th></tr>
-  <tr><td><code>CheckoutService</code></td><td>SettingsStore, StripeGateway, ProductRepository, CustomerManager</td><td>Build Stripe sessions.</td></tr>
-  <tr><td><code>WebhookHandler</code></td><td>SettingsStore, IdempotencyStore, StripeGateway, CustomerManager, SubscriptionRepository, EntitlementManager, ProductRepository, WpRoleSync</td><td>Dispatch Stripe events.</td></tr>
+  <tr><td><code>CheckoutService</code></td><td>SettingsStore, StripeGateway, ProductRepository, CustomerManager</td><td>Build Stripe sessions (subscription + portal).</td></tr>
   <tr><td><code>CustomerManager</code></td><td>CustomerRepository</td><td>Identity lookup + create.</td></tr>
   <tr><td><code>EntitlementManager</code></td><td>EntitlementRepository</td><td>Grant/revoke access; query active tier.</td></tr>
-  <tr><td><code>Reconciler</code></td><td>WpRoleSync</td><td>Periodic drift correction.</td></tr>
 </table>
 
 <h3>Domain <span class="tag domain">Domain</span></h3>
 <table>
   <tr><th>Type</th><th>Shape</th></tr>
-  <tr><td><code>Customer</code></td><td><code>readonly class</code>: id, uuid, stripeCustomerId?, email, name?, country?, locale?</td></tr>
-  <tr><td><code>Subscription</code></td><td><code>readonly class</code>: id, customerId, stripeSubscriptionId, stripePriceId, status, cancelAtPeriodEnd, periods, canceledAt; <code>isActive()</code></td></tr>
-  <tr><td><code>Entitlement</code></td><td><code>readonly class</code>: id, uuid, customerId, kind, ref, sourceType, sourceId?, startsAt, expiresAt?, revokedAt?; <code>isActive()</code></td></tr>
+  <tr><td><code>Customer</code></td><td>readonly: id, uuid, stripeCustomerId?, email, name?, country?, locale?</td></tr>
+  <tr><td><code>Subscription</code></td><td>readonly: id, customerId, stripeSubscriptionId, stripePriceId, status, cancelAtPeriodEnd, periods, canceledAt; <code>isActive()</code></td></tr>
+  <tr><td><code>Entitlement</code></td><td>readonly: id, uuid, customerId, kind, ref, sourceType, sourceId?, startsAt, expiresAt?, revokedAt?; <code>isActive()</code></td></tr>
 </table>
 
-<h3>Contracts (interfaces) <span class="tag contract">Contract</span></h3>
+<h3>Contracts <span class="tag contract">Contract</span></h3>
 <table>
   <tr><th>Interface</th><th>Implemented by</th></tr>
   <tr><td><code>CustomerRepository</code></td><td>PdoCustomerRepository</td></tr>
@@ -325,38 +326,48 @@
   <tr><td><code>EntitlementRepository</code></td><td>PdoEntitlementRepository</td></tr>
   <tr><td><code>ProductRepository</code></td><td>PdoProductRepository</td></tr>
   <tr><td><code>SettingsStore</code></td><td>EnvSettingsStore</td></tr>
-  <tr><td><code>Notifier</code></td><td>MailNotifier</td></tr>
-  <tr><td><code>IdempotencyStore</code></td><td>PdoIdempotencyStore</td></tr>
   <tr><td><code>StripeGateway</code></td><td>LiveStripeGateway</td></tr>
-  <tr><td><code>WpRoleSync</code></td><td>PdoWpRoleSync</td></tr>
 </table>
 
-<h3>Adapters <span class="tag adapt">Adapter</span> — <i>to be written</i></h3>
+<h3>Adapters <span class="tag adapt">Adapter</span> — <i>to be written next</i></h3>
 <table>
   <tr><th>Class</th><th>What it does</th></tr>
   <tr><td><code>PdoCustomerRepository</code></td><td>CRUD on <code>customers</code>. UUID generation on create.</td></tr>
   <tr><td><code>PdoSubscriptionRepository</code></td><td>UPSERT keyed on <code>stripe_subscription_id</code>.</td></tr>
   <tr><td><code>PdoEntitlementRepository</code></td><td>Insert-only (revoke = set <code>revoked_at</code>). Active-for-customer query.</td></tr>
-  <tr><td><code>PdoProductRepository</code></td><td>tierForPrice lookup + region-aware price resolution query.</td></tr>
-  <tr><td><code>PdoIdempotencyStore</code></td><td>INSERT IGNORE on <code>processed_events</code>.</td></tr>
+  <tr><td><code>PdoProductRepository</code></td><td>tierForPrice + region-aware price resolution + grants_duration_days.</td></tr>
   <tr><td><code>LiveStripeGateway</code></td><td>Delegate each method to <code>\Stripe\StripeClient</code>.</td></tr>
   <tr><td><code>EnvSettingsStore</code></td><td>Read <code>$_ENV</code> values loaded by dotenv at boot.</td></tr>
-  <tr><td><code>MailNotifier</code></td><td>Welcome mail + reconciliation summary via SMTP.</td></tr>
-  <tr><td><code>PdoWpRoleSync</code></td><td><b>Highest-risk adapter.</b> Cross-DB write to <code>wp_usermeta.wp_capabilities</code>, preserving non-tier roles.</td></tr>
 </table>
 
 <!-- ============================================================ -->
-<h2>6. Where things are not yet built</h2>
+<h2>7. What's not yet built</h2>
+
+<h3>Slim</h3>
 <ul>
-  <li><b>Adapters</b> — all nine. Next pass.</li>
-  <li><b>Slim routes + controllers</b> beyond <code>/health</code>.</li>
-  <li><b>Refund / dispute webhook handlers.</b></li>
-  <li><b>Product + price seeding.</b> First-time data: insert the three looth tiers and their prices manually (SQL script).</li>
-  <li><b>Region seed</b>: <code>price_regions</code> rows for DEV-country list.</li>
-  <li><b>DI container wiring</b>: <code>config/container.php</code> currently only knows about HealthController.</li>
-  <li><b>nginx location block</b> for <code>/billing/</code> subpath.</li>
-  <li><b>php-fpm pool</b> with dedicated user.</li>
-  <li><b>Stripe webhook repoint</b> from WP endpoint to <code>/billing/v1/webhook</code>.</li>
+  <li>All six adapters (the list above).</li>
+  <li>Slim controllers + routes for <code>/v1/checkout</code> <code>/v1/portal</code> <code>/v1/return</code> <code>/v1/tiers</code>.</li>
+  <li>DI wiring in <code>config/container.php</code>.</li>
+  <li>Schema applied to dev MySQL + initial product/price/region seed.</li>
+  <li>nginx <code>/billing/</code> location + dedicated php-fpm pool.</li>
+</ul>
+
+<h3>WP plugin (separate repo, not started)</h3>
+<ul>
+  <li>Plugin scaffold (<code>lg-member-sync.php</code>, activation hooks, cron registration).</li>
+  <li><code>lg_role_sources</code> + <code>lg_event_cursor</code> tables.</li>
+  <li>Stripe Events API poller.</li>
+  <li>Patreon OAuth poller (port from existing patreon plugin).</li>
+  <li>Arbiter service.</li>
+  <li>Capabilities writer (the only place that touches <code>wp_capabilities</code>).</li>
+  <li>Welcome-email sender.</li>
+  <li>Admin status dashboard (optional).</li>
+</ul>
+
+<h3>Cutover</h3>
+<ul>
+  <li>Disable old <code>lg-stripe-membership</code> webhook in Stripe Dashboard.</li>
+  <li>Retire old <code>lg-stripe-membership</code> + old patreon plugin once new poller is solid.</li>
 </ul>
 
 <p class="small">This doc is checked in. Edit it when the architecture shifts — it's the grounding wire for future sessions.</p>
