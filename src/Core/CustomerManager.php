@@ -13,6 +13,16 @@ class CustomerManager
         private readonly CustomerRepository $customers,
     ) {}
 
+    public function findById(int $id): ?Customer
+    {
+        return $this->customers->findById($id);
+    }
+
+    public function findByStripeCustomerId(string $stripeCustomerId): ?Customer
+    {
+        return $this->customers->findByStripeCustomerId($stripeCustomerId);
+    }
+
     /**
      * Find an existing customer by Stripe ID or email, or create one.
      *
