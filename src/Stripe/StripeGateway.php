@@ -22,6 +22,4 @@ interface StripeGateway
     public function listCustomerSubscriptions(string $stripeCustomerId, array $params = []): iterable;
 
     public function createPortalSession(string $stripeCustomerId, string $returnUrl): object;
-
-    public function constructWebhookEvent(string $payload, string $signature, string $secret): object;
 }
