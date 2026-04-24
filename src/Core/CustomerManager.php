@@ -23,6 +23,11 @@ class CustomerManager
         return $this->customers->findByStripeCustomerId($stripeCustomerId);
     }
 
+    public function findByEmail(string $email): ?Customer
+    {
+        return $this->customers->findByEmail($email);
+    }
+
     /**
      * Find an existing customer by Stripe ID or email, or create one.
      *
