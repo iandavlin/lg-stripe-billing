@@ -1,6 +1,15 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-04-24*
+*Last worked: 2026-04-25*
+
+## Production deploy ownership (flag for later)
+
+Dev install lives under `/home/ccdev/lg-stripe-billing` (ccdev owned).
+**Production install must live under a path owned by `ubuntu`** —
+matches the rest of our prod ops surface and avoids privilege drift
+when systemd/php-fpm pools talk to each other. Likely target:
+`/var/www/billing/lg-stripe-billing` or `/home/ubuntu/lg-stripe-billing`.
+Pool config + systemd units will need the matching user at cutover.
 
 ## Architecture (current)
 
