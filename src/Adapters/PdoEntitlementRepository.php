@@ -57,6 +57,23 @@ final class PdoEntitlementRepository implements EntitlementRepository
         ?int               $sourceId,
         ?DateTimeImmutable $expiresAt,
     ): Entitlement {
+        // Idempotency: if an active entitlement already exists for the same
+        // source + same ref + same kind, return it instead of writing churn.
+        if ($sourceId !== null) {
+            $stmt = $this->pdo->prepare(
+                'SELECT * FROM entitlements
+                 WHERE customer_id = ? AND kind = ? AND ref = ?
+                   AND source_type = ? AND source_id = ?
+                   AND revoked_at IS NULL
+                 ORDER BY id DESC LIMIT 1'
+            );
+            $stmt->execute([$customerId, $kind, $ref, $sourceType, $sourceId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row !== false) {
+                return self::toDto($row);
+            }
+        }
+
         $uuid = Uuid::v4();
         $stmt = $this->pdo->prepare(
             'INSERT INTO entitlements
