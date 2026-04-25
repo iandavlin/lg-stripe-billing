@@ -23,6 +23,11 @@ final class App
         AppFactory::setContainer($container);
         $app = AppFactory::create();
 
+        $basePath = (string) ($_ENV['APP_BASE_PATH'] ?? '');
+        if ($basePath !== '') {
+            $app->setBasePath('/' . trim($basePath, '/'));
+        }
+
         $app->addRoutingMiddleware();
         $app->addBodyParsingMiddleware();
         $app->addErrorMiddleware(
