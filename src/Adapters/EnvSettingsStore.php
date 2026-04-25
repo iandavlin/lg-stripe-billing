@@ -29,6 +29,16 @@ final class EnvSettingsStore implements SettingsStore
         return self::env('APP_HOME_URL');
     }
 
+    public function getSyncEndpointUrl(): string
+    {
+        return self::env('LGMS_SYNC_URL');
+    }
+
+    public function getSyncSharedSecret(): string
+    {
+        return self::env('LGMS_SHARED_SECRET');
+    }
+
     private static function env(string $key): string
     {
         $v = $_ENV[$key] ?? getenv($key);

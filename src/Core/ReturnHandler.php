@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LGSB\Core;
 
 use DateTimeImmutable;
+use LGSB\Contracts\SettingsStore;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Domain\Repositories\SubscriptionRepository;
 use LGSB\Stripe\StripeGateway;
@@ -24,6 +25,7 @@ class ReturnHandler
         private readonly CustomerManager        $customers,
         private readonly SubscriptionRepository $subscriptions,
         private readonly EntitlementManager     $entitlements,
+        private readonly SettingsStore          $settings,
     ) {}
 
     /**
@@ -92,12 +94,47 @@ class ReturnHandler
             $subscription->id,
         );
 
+        // Fire-and-forget: nudge the WP plugin to provision the user + sync roles.
+        $this->triggerWpSync($customer->id);
+
         return [
             'ok'          => true,
             'message'     => "Provisioned {$customer->email} → {$tier}",
             'customer_id' => $customer->id,
             'tier'        => $tier,
         ];
+    }
+
+    /**
+     * POST to the WP plugin's /sync-customer endpoint. Best-effort:
+     * a short timeout, errors swallowed. The plugin's hourly cron is
+     * the safety net if this call fails.
+     */
+    private function triggerWpSync(int $customerId): void
+    {
+        $url    = $this->settings->getSyncEndpointUrl();
+        $secret = $this->settings->getSyncSharedSecret();
+        if ($url === '' || $secret === '') {
+            return;
+        }
+
+        $ch = curl_init($url);
+        if ($ch === false) {
+            return;
+        }
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 3,
+            CURLOPT_CONNECTTIMEOUT => 2,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'X-LGMS-Token: ' . $secret,
+            ],
+            CURLOPT_POSTFIELDS     => json_encode(['customer_id' => $customerId]),
+        ]);
+        @curl_exec($ch);
+        curl_close($ch);
     }
 
     private static function tsToDate(mixed $ts): ?DateTimeImmutable

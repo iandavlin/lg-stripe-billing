@@ -20,4 +20,10 @@ interface SettingsStore
     public function getCheckoutReturnUrl(): string;
 
     public function getHomeUrl(): string;
+
+    /** URL of the WP plugin's sync-customer REST endpoint. Empty string = disabled. */
+    public function getSyncEndpointUrl(): string;
+
+    /** Shared secret for the X-LGMS-Token header. Empty string = disabled. */
+    public function getSyncSharedSecret(): string;
 }
