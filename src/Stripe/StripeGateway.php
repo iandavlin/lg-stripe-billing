@@ -22,4 +22,11 @@ interface StripeGateway
     public function listCustomerSubscriptions(string $stripeCustomerId, array $params = []): iterable;
 
     public function createPortalSession(string $stripeCustomerId, string $returnUrl): object;
+
+    /**
+     * Verify and decode a Stripe webhook payload.
+     *
+     * @throws \Stripe\Exception\SignatureVerificationException on bad signature
+     */
+    public function constructWebhookEvent(string $payload, string $sigHeader, string $secret): object;
 }

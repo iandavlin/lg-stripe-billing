@@ -39,6 +39,11 @@ final class EnvSettingsStore implements SettingsStore
         return self::env('LGMS_SHARED_SECRET');
     }
 
+    public function getWebhookSecret(): string
+    {
+        return self::env('STRIPE_WEBHOOK_SECRET');
+    }
+
     private static function env(string $key): string
     {
         $v = $_ENV[$key] ?? getenv($key);

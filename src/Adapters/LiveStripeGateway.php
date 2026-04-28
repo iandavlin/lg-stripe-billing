@@ -48,4 +48,9 @@ final class LiveStripeGateway implements StripeGateway
             'return_url' => $returnUrl,
         ]);
     }
+
+    public function constructWebhookEvent(string $payload, string $sigHeader, string $secret): object
+    {
+        return \Stripe\Webhook::constructEvent($payload, $sigHeader, $secret);
+    }
 }

@@ -26,4 +26,7 @@ interface SettingsStore
 
     /** Shared secret for the X-LGMS-Token header. Empty string = disabled. */
     public function getSyncSharedSecret(): string;
+
+    /** Stripe webhook signing secret (whsec_…). Empty string = signature check skipped. */
+    public function getWebhookSecret(): string;
 }

@@ -66,4 +66,100 @@ final class PdoProductRepository implements ProductRepository
         $val = $stmt->fetchColumn();
         return ($val !== false && $val !== null) ? (int) $val : null;
     }
+
+    public function upsertProduct(
+        string  $stripeProductId,
+        string  $name,
+        string  $kind,
+        ?string $ref,
+        bool    $active,
+    ): void {
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO products (stripe_product_id, kind, ref, name, active)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                 name   = VALUES(name),
+                 kind   = VALUES(kind),
+                 ref    = COALESCE(VALUES(ref), ref),
+                 active = VALUES(active)"
+        );
+        $stmt->execute([$stripeProductId, $kind, $ref, $name, (int) $active]);
+    }
+
+    public function upsertPrice(
+        string  $stripePriceId,
+        string  $stripeProductId,
+        string  $type,
+        ?string $interval,
+        int     $unitAmountCents,
+        string  $currency,
+        ?string $regionTag,
+        int     $priority,
+        bool    $active,
+        ?int    $grantsDurationDays,
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'SELECT id FROM products WHERE stripe_product_id = ? LIMIT 1'
+        );
+        $stmt->execute([$stripeProductId]);
+        $productId = $stmt->fetchColumn();
+        if ($productId === false) {
+            return;
+        }
+
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO prices
+                 (product_id, stripe_price_id, type, `interval`, unit_amount_cents,
+                  currency, region_tag, priority, grants_duration_days, active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                 type                 = VALUES(type),
+                 `interval`           = VALUES(`interval`),
+                 unit_amount_cents    = VALUES(unit_amount_cents),
+                 currency             = VALUES(currency),
+                 region_tag           = VALUES(region_tag),
+                 priority             = VALUES(priority),
+                 grants_duration_days = VALUES(grants_duration_days),
+                 active               = VALUES(active)"
+        );
+        $stmt->execute([
+            $productId, $stripePriceId, $type, $interval, $unitAmountCents,
+            $currency, $regionTag, $priority, $grantsDurationDays, (int) $active,
+        ]);
+    }
+
+    public function listMembership(): array
+    {
+        $stmt = $this->pdo->query(
+            "SELECT p.stripe_product_id, p.name, p.ref,
+                    pr.stripe_price_id, pr.interval, pr.unit_amount_cents,
+                    pr.currency, pr.region_tag
+             FROM products p
+             JOIN prices pr ON pr.product_id = p.id AND pr.active = 1
+             WHERE p.kind = 'membership' AND p.active = 1
+             ORDER BY p.id ASC, pr.priority ASC"
+        );
+
+        $map = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $pid = $row['stripe_product_id'];
+            if (!isset($map[$pid])) {
+                $map[$pid] = [
+                    'stripe_product_id' => $pid,
+                    'name'              => $row['name'],
+                    'ref'               => $row['ref'],
+                    'prices'            => [],
+                ];
+            }
+            $map[$pid]['prices'][] = [
+                'stripe_price_id'   => $row['stripe_price_id'],
+                'interval'          => $row['interval'],
+                'unit_amount_cents' => (int) $row['unit_amount_cents'],
+                'currency'          => $row['currency'],
+                'region_tag'        => $row['region_tag'],
+            ];
+        }
+
+        return array_values($map);
+    }
 }
