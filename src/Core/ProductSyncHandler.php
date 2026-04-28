@@ -10,9 +10,10 @@ use LGSB\Domain\Repositories\ProductRepository;
  * Syncs product and price objects received via Stripe webhooks into the
  * local DB so the tier picker always reflects what's live in the Dashboard.
  *
- * Convention: set metadata.ref = 'looth2' (tier slug) and
- * metadata.kind = 'membership' on Stripe products. metadata.region_tag,
- * metadata.priority, and metadata.grants_duration_days are optional on prices.
+ * Products: only `name` and `active` are synced — `ref` and `kind` are set
+ * once manually via SQL and are never overwritten by webhook events.
+ * Prices: optional metadata.region_tag, metadata.priority,
+ * metadata.grants_duration_days are honoured.
  */
 final class ProductSyncHandler
 {
@@ -20,15 +21,11 @@ final class ProductSyncHandler
 
     public function handleProductEvent(object $stripeProduct): void
     {
-        $meta = $stripeProduct->metadata ?? null;
-        $ref  = ($meta->ref  ?? null) ?: null;
-        $kind = ($meta->kind ?? null) ?: 'membership';
-
         $this->products->upsertProduct(
             (string) $stripeProduct->id,
             (string) $stripeProduct->name,
-            $kind,
-            $ref,
+            'membership', // only used on first INSERT — updates skip kind/ref
+            null,
             (bool) $stripeProduct->active,
         );
     }

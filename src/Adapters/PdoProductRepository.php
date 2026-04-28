@@ -79,8 +79,6 @@ final class PdoProductRepository implements ProductRepository
              VALUES (?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                  name   = VALUES(name),
-                 kind   = VALUES(kind),
-                 ref    = COALESCE(VALUES(ref), ref),
                  active = VALUES(active)"
         );
         $stmt->execute([$stripeProductId, $kind, $ref, $name, (int) $active]);
