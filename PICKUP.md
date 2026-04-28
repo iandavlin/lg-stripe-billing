@@ -1,10 +1,10 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-04-25 (long session, dev fully operational)*
+*Last worked: 2026-04-28*
 
 ## State at end of session
 
-Everything works on dev. Browser-tested end-to-end, default cascade verified, multi-source arbitration verified.
+Everything works on dev. Webhook sync is live and tested end-to-end. Product/price changes in the Stripe Dashboard flow into the DB automatically.
 
 ```
 Browser ─► dev.loothgroup.com/billing/v1/checkout ─► Stripe Checkout ─► /v1/return
@@ -17,93 +17,158 @@ Browser ─► dev.loothgroup.com/billing/v1/checkout ─► Stripe Checkout ─
                                               WP plugin: provision user, write
                                               lg_role_sources(stripe, tier),
                                               run arbiter, write wp_capabilities
-```
 
-Plus: hourly WP cron polls Stripe Events API and Patreon API, both feed `lg_role_sources`, arbiter merges. One arbiter, one writer of `wp_capabilities`.
+Stripe Dashboard ─► product.*/price.* events ─► POST /billing/v1/webhook
+                                                          │
+                                                          ▼
+                                              DB upserts products + prices
+                                              GET /v1/products always reflects live data
+```
 
 ## Two-repo system
 
 | Repo | Lives | Role |
 |---|---|---|
 | [`lg-stripe-billing`](https://github.com/iandavlin/lg-stripe-billing) (this) | EC2: `/home/ccdev/lg-stripe-billing/` (dev) | Slim user-facing API |
-| [`lg-patreon-stripe-poller`](https://github.com/iandavlin/lg-patreon-stripe-poller) | EC2: `/var/www/dev/wp-content/plugins/lg-patreon-stripe-poller/` | WP plugin: pollers + arbiter + capabilities writer |
+| [`lg-patreon-stripe-poller`](https://github.com/iandavlin/lg-patreon-stripe-poller) | EC2: `/var/www/dev/wp-content/plugins/lg-patreon-stripe-poller/` | WP plugin: pollers + arbiter + capabilities writer + shortcodes |
 
-Retired (folder renamed `*.deprecated-2026-04-25`):
-- `lg-stripe-membership` (legacy plugin)
-- `lg-member-sync` (intermediate plugin, folded into lg-patreon-stripe-poller)
-- `lg-patreon-sync` (CSV-based legacy)
+## Live endpoints (dev)
 
-## Slim is feature-complete for current scope
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | Liveness probe |
+| GET | `/v1/config` | Returns publishable key |
+| GET | `/v1/products` | Active membership products + prices (for shortcode tier picker) |
+| POST | `/v1/checkout` | Create Stripe Checkout session |
+| POST | `/v1/portal` | Create Stripe customer portal session |
+| GET | `/v1/return` | Stripe redirect handler after checkout |
+| POST | `/v1/webhook` | Stripe webhook receiver (product/price sync + subscription events) |
 
-- ✅ Schema + migrations
-- ✅ Domain DTOs + repository interfaces
-- ✅ Adapters (Pdo*, LiveStripeGateway, EnvSettingsStore)
-- ✅ Core services (CheckoutService, CustomerManager, EntitlementManager, ReturnHandler)
-- ✅ Routes (`/v1/checkout`, `/v1/portal`, `/v1/return`, `/v1/config`, `/health`)
-- ✅ DI wired
-- ✅ nginx + php-fpm pool live at `https://dev.loothgroup.com/billing/`
-- ✅ ReturnHandler fires `/sync-customer` to WP plugin
-- ✅ Idempotency on entitlement grant (no duplicate rows on refresh)
+## Webhook endpoint (dev)
+
+- Registered in Stripe: `we_1TR8nSHg6gcIV22bUqxeVvff`
+- URL: `https://dev.loothgroup.com/billing/v1/webhook`
+- Events: `product.created`, `product.updated`, `price.created`, `price.updated`
+- Secret: in `.env` as `STRIPE_WEBHOOK_SECRET`
+- **TODO:** Add `customer.subscription.updated`, `customer.subscription.deleted`, `charge.refunded` to the registered events
+
+## Products/prices convention
+
+Products and prices sync automatically from Stripe via webhooks. To add a new tier:
+1. Create the product in Stripe Dashboard
+2. Run one SQL to set `ref` and `kind` (metadata approach was dropped — too fragile):
+   ```sql
+   INSERT INTO products (stripe_product_id, kind, ref, name, active)
+   VALUES ('prod_xxx', 'membership', 'looth3', 'Looth PRO', 1);
+   ```
+3. Trigger any `product.updated` event (edit description, etc.) — webhook syncs `name` and `active` automatically going forward
+
+The `ProductSyncHandler` should be simplified to only sync `name` and `active` — not `ref` or `kind` (those are set once manually). **TODO:** make this change.
+
+## Decisions locked in (2026-04-28)
+
+### Subscription status policy
+| Stripe status | Access |
+|---|---|
+| `active` | Full access to tier |
+| `trialing` | Full access to trialing tier |
+| `past_due` | Keep access through Stripe retry window |
+| `canceled` | Revoke immediately |
+| `refunded` | Revoke immediately, all cases (subscription and one-time) |
+
+### Upgrade / downgrade
+- Near-instant via `customer.subscription.updated` webhook handler (not yet built)
+- Downgrade takes effect at period end (member keeps higher tier for remainder of paid period)
+
+### One-time yearly memberships
+- `grants_duration_days` field exists in schema
+- Expiry enforcement **not yet built** — cron needs an expiry sweep:
+  ```sql
+  UPDATE entitlements SET active = 0
+  WHERE expires_at IS NOT NULL AND expires_at < NOW() AND active = 1
+  ```
+  Then fire WP sync for each affected customer.
+- **Must ship before one-time yearly goes on sale**
+
+### Gift memberships
+- Gift code system (not custom checkout field — too fragile on typos)
+- Purchaser checks out, return handler generates a unique code, emails it to purchaser
+- Recipient redeems at `[lg_redeem_gift]` shortcode
+- New table needed: `gift_codes`
+- New Slim endpoint: `POST /v1/redeem`
+
+### Bulk memberships (shops, schools, factories)
+- Handled as bulk-priced gift packs — no org seat management needed
+- Shop buys a 10-pack product, gets 10 codes to distribute
+- Each employee/student redeems independently, gets a standalone membership
+- Return handler detects bulk product, generates N codes, emails all to purchaser
+- Employees keep access even if shop doesn't renew (by design)
 
 ## Next steps, in priority order
 
-### 1. Frontend join page (BIGGEST gap — no real users yet)
+### 1. `customer.subscription.updated` webhook handler (NEXT)
 
-Replace `public/checkout-test.html` with a member-facing flow:
+Add to Slim's `WebhookController` + register event in Stripe:
+- On `subscription.updated`: update `subscriptions` table, re-resolve tier, fire `/sync-customer`
+- Handles upgrade, downgrade, trial-end, renewal, past_due transitions
+- Also register `customer.subscription.deleted` (maps to cancel cascade)
 
-- Add a `[lg_join]` shortcode in the WP plugin (`lg-patreon-stripe-poller`) that renders tier picker + embedded Stripe Checkout
-- Frontend JS calls Slim's `POST /v1/checkout`, gets clientSecret, mounts via Stripe.js
-- Replace whatever's on the existing `/join/` page on dev.loothgroup.com
-- Reference existing pattern: the legacy `lg-stripe-membership` plugin's `renderShortcode` method (still on disk at `/var/www/dev/wp-content/plugins/lg-stripe-membership.deprecated-2026-04-25/class-checkout.php`)
+### 2. Simplify `ProductSyncHandler`
 
-Estimated: ~150 lines, 1-2 hours.
+Strip `ref` and `kind` from the upsert — only sync `name` and `active`. Metadata approach was too error-prone (key naming convention broke in testing).
 
-### 2. Customer Portal entry point
+### 3. Gift code system
 
-`POST /v1/portal` works server-side but no UI:
+New migration: `gift_codes` table:
+```sql
+CREATE TABLE gift_codes (
+    id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    code             CHAR(12)        NOT NULL,
+    tier             VARCHAR(64)     NOT NULL,
+    duration_days    INT UNSIGNED    NOT NULL,
+    purchased_by     BIGINT UNSIGNED NOT NULL,  -- customers.id
+    redeemed_by      BIGINT UNSIGNED NULL,
+    stripe_session_id VARCHAR(128)   NULL,
+    expires_at       DATETIME        NULL,
+    redeemed_at      DATETIME        NULL,
+    created_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_code (code),
+    CONSTRAINT fk_gc_purchased FOREIGN KEY (purchased_by) REFERENCES customers(id),
+    CONSTRAINT fk_gc_redeemed  FOREIGN KEY (redeemed_by)  REFERENCES customers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
 
-- `[lg_manage_subscription]` shortcode, visible to logged-in `looth2`+ users
-- Button posts to `/v1/portal` with the user's email, redirects to Stripe portal URL
-- ~30 lines.
-
-### 3. Resubscribe-after-default test
-
-We tested cancel cascade. Haven't tested same-email coming back:
-
-- Take customer 5 (currently lapsed at looth1 from today's default test)
-- Run a new browser checkout with same email `stinkbutt@example.com`
-- Verify: same `customer_id`, same `wp_user_id`, new subscription row, new entitlement, capabilities back to `looth2`
-- ~5 minutes, no code changes expected.
+New endpoint: `POST /v1/redeem` — validates code, grants entitlement, fires WP sync.
 
 ### 4. Cutover to production
 
 Currently everything is dev. Live (loothgroup.com) still on legacy plugin. Migration steps:
 
-1. Set up `/var/www/billing/lg-stripe-billing/` (or `/home/ubuntu/lg-stripe-billing/`) — **owned by `ubuntu`** per the flag below
+1. Set up `/var/www/billing/lg-stripe-billing/` — **owned by `ubuntu`** per the flag below
 2. Clone Slim, run `composer install`
 3. Create production `lg_membership_prod` MySQL DB + user
-4. Apply schema
-5. Seed products/prices/regions for prod (different Stripe price IDs)
-6. nginx config: add `/billing/` location to `loothgroup.com.conf`, point at new php-fpm pool
+4. Apply schema + seed (region tags only — no fake product rows)
+5. Seed products/prices for prod (trigger via Stripe events after setting live keys)
+6. nginx config: add `/billing/` location to `loothgroup.com.conf`
 7. New php-fpm pool `lg-billing-live` running as `ubuntu`
-8. `.env` with **live** Stripe keys (sk_live_…, pk_live_…) + `LGMS_SHARED_SECRET`
+8. `.env` with **live** Stripe keys + `LGMS_SHARED_SECRET` + `STRIPE_WEBHOOK_SECRET`
 9. Deploy `lg-patreon-stripe-poller` to `/var/www/html/wp-content/plugins/`
-10. Configure plugin's settings page with prod DB creds + Stripe key + shared secret
-11. **Disable the legacy `lg-stripe-membership` plugin on prod** (it's still serving live members today)
-12. Verify a manual test checkout, watch the cascade
-13. Stripe Dashboard: webhook URL on the prod side currently points at the legacy plugin — leave it (poller handles everything now), or remove the webhook entirely
+10. Register prod webhook in Stripe (same events as dev)
+11. Configure plugin's settings page with prod DB creds + Stripe key + shared secret
+12. **Disable the legacy `lg-stripe-membership` plugin on prod**
+13. Verify a manual test checkout, watch the cascade
 
 ### 5. Optimization (nice-to-have)
 
-`Sync::all()` currently iterates every customer on every cron tick. Track "dirty" customers in pass 1 of `Tick::run` and only sync those in pass 2. Linear → constant for unchanged users.
+`Sync::all()` currently iterates every customer on every cron tick. Track "dirty" customers in pass 1 of `Tick::run` and only sync those in pass 2.
 
 ### 6. Refund / dispute handlers
 
-`charge.refunded` is wired (revokes via subscription lookup). `charge.dispute.created` is unhandled — admin manually deals with disputes for now.
+`charge.refunded` is wired (needs confirming it revokes immediately per the decision above). `charge.dispute.created` is unhandled — admin manually deals with disputes for now.
 
 ## Production deploy ownership (flag)
 
-Dev install lives under `/home/ccdev/lg-stripe-billing` (ccdev owned). **Production install must live under a path owned by `ubuntu`** — matches the rest of the prod ops surface and avoids privilege drift between systemd/php-fpm pools. Likely target: `/var/www/billing/lg-stripe-billing` or `/home/ubuntu/lg-stripe-billing`. Pool config + systemd units will need the matching user at cutover.
+Dev install lives under `/home/ccdev/lg-stripe-billing` (ccdev owned). **Production install must live under a path owned by `ubuntu`** — matches the rest of the prod ops surface. Likely target: `/var/www/billing/lg-stripe-billing` or `/home/ubuntu/lg-stripe-billing`. Pool config + systemd units will need the matching user at cutover.
 
 ## Server access
 
@@ -119,6 +184,9 @@ For ubuntu-owned operations (sudo, plugin folder moves), log in as ubuntu separa
 # Health
 curl -s https://dev.loothgroup.com/billing/health
 
+# Products (tier picker data)
+curl -s https://dev.loothgroup.com/billing/v1/products
+
 # Browser end-to-end
 open https://dev.loothgroup.com/billing/checkout-test.html
 
@@ -132,20 +200,18 @@ curl -s -X POST -H "Content-Type: application/json" -H "X-LGMS-Token: $SECRET" \
   https://dev.loothgroup.com/wp-json/lg-member-sync/v1/sync-customer
 
 # Inspect lg_membership state
-mysql -e "SHOW TABLES;"   # uses ~/.my.cnf for lg_membership user
+mysql -h 127.0.0.1 -u lg_membership -p'<password>' lg_membership -e "SHOW TABLES;"
 ```
 
-## System map (for the full picture)
-
-Open `docs/system-map.html` in a browser for the full architecture diagram, table-by-table breakdown, flow walkthroughs, and class inventory.
-
-## Customers / WP users currently on dev (test data)
+## DB state on dev (test data)
 
 | customer_id | email | wp_user | tier | notes |
 |---|---|---|---|---|
 | 1, 2 | smoketest+1, +public | — | — | curl-only tests, no Stripe customer |
-| 3 | browsertest@ | 1817 fart.mcfartingham | looth2 | created via legacy plugin during today's testing |
+| 3 | browsertest@ | 1817 fart.mcfartingham | looth2 | created via legacy plugin |
 | 4 | fartbutt@ | 1818 fartbutt | looth2 | full new pipeline |
-| 5 | stinkbutt@ | 1819 stinkbutt | **looth1** (defaulted) | used for cancel cascade test |
+| 5 | stinkbutt@ | 1819 stinkbutt | looth1 (defaulted) | used for cancel cascade test; ready for resubscribe test |
 
-Customer 5 is lapsed and ready for the resubscribe test.
+## System map
+
+Open `docs/system-map.html` in a browser for the full architecture diagram, table-by-table breakdown, flow walkthroughs, and class inventory.
