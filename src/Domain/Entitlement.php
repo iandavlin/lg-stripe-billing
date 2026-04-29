@@ -29,6 +29,7 @@ readonly class Entitlement
         public DateTimeImmutable  $startsAt,
         public ?DateTimeImmutable $expiresAt,
         public ?DateTimeImmutable $revokedAt,
+        public ?array             $metadata = null,
     ) {}
 
     public function isActive(?DateTimeImmutable $now = null): bool

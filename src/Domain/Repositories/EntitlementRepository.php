@@ -33,6 +33,7 @@ interface EntitlementRepository
         ?int               $sourceId,
         ?DateTimeImmutable $expiresAt,
         ?DateTimeImmutable $startsAt = null,
+        ?array             $metadata = null,
     ): Entitlement;
 
     public function revoke(int $entitlementId): void;

@@ -24,4 +24,13 @@ interface GiftCodeRepository
     ): array;
 
     public function redeem(int $giftCodeId, int $redeemedBy): void;
+
+    /**
+     * Void all unredeemed codes from a given Stripe Checkout session.
+     * Returns IDs of any codes already redeemed (need admin review) and
+     * IDs that were just voided.
+     *
+     * @return array{voided:int[], already_redeemed:int[]}
+     */
+    public function voidByStripeSessionId(string $stripeSessionId): array;
 }

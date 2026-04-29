@@ -73,13 +73,14 @@ final class PdoEntitlementRepository implements EntitlementRepository
         ?int               $sourceId,
         ?DateTimeImmutable $expiresAt,
         ?DateTimeImmutable $startsAt = null,
+        ?array             $metadata = null,
     ): Entitlement {
         // Idempotency: if an active entitlement already exists for the same
         // source + same ref + same kind, return it instead of writing churn.
-        // Skip the idempotency check when an explicit startsAt is given —
-        // gift redemption strategies legitimately produce multiple rows for
-        // the same source_type with different windows.
-        if ($sourceId !== null && $startsAt === null) {
+        // Skip the idempotency check when an explicit startsAt or metadata is
+        // given — gift redemption strategies legitimately produce multiple rows
+        // for the same source_type with different windows or audit data.
+        if ($sourceId !== null && $startsAt === null && $metadata === null) {
             $stmt = $this->pdo->prepare(
                 'SELECT * FROM entitlements
                  WHERE customer_id = ? AND kind = ? AND ref = ?
@@ -94,38 +95,25 @@ final class PdoEntitlementRepository implements EntitlementRepository
             }
         }
 
-        $uuid = Uuid::v4();
+        $uuid       = Uuid::v4();
+        $metaJson   = $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null;
+        $startsStr  = $startsAt?->format('Y-m-d H:i:s');
+        $expiresStr = $expiresAt?->format('Y-m-d H:i:s');
+
         if ($startsAt !== null) {
             $stmt = $this->pdo->prepare(
                 'INSERT INTO entitlements
-                    (uuid, customer_id, kind, ref, source_type, source_id, starts_at, expires_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                    (uuid, customer_id, kind, ref, source_type, source_id, starts_at, expires_at, metadata)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            $stmt->execute([
-                $uuid,
-                $customerId,
-                $kind,
-                $ref,
-                $sourceType,
-                $sourceId,
-                $startsAt->format('Y-m-d H:i:s'),
-                $expiresAt?->format('Y-m-d H:i:s'),
-            ]);
+            $stmt->execute([$uuid, $customerId, $kind, $ref, $sourceType, $sourceId, $startsStr, $expiresStr, $metaJson]);
         } else {
             $stmt = $this->pdo->prepare(
                 'INSERT INTO entitlements
-                    (uuid, customer_id, kind, ref, source_type, source_id, expires_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+                    (uuid, customer_id, kind, ref, source_type, source_id, expires_at, metadata)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             );
-            $stmt->execute([
-                $uuid,
-                $customerId,
-                $kind,
-                $ref,
-                $sourceType,
-                $sourceId,
-                $expiresAt?->format('Y-m-d H:i:s'),
-            ]);
+            $stmt->execute([$uuid, $customerId, $kind, $ref, $sourceType, $sourceId, $expiresStr, $metaJson]);
         }
         $id = (int) $this->pdo->lastInsertId();
         return $this->findById($id) ?? throw new RuntimeException('Failed to grant entitlement');
@@ -151,6 +139,11 @@ final class PdoEntitlementRepository implements EntitlementRepository
 
     private static function toDto(array $row): Entitlement
     {
+        $metadata = null;
+        if (isset($row['metadata']) && $row['metadata'] !== null && $row['metadata'] !== '') {
+            $decoded  = json_decode((string) $row['metadata'], true);
+            $metadata = is_array($decoded) ? $decoded : null;
+        }
         return new Entitlement(
             id: (int) $row['id'],
             uuid: (string) $row['uuid'],
@@ -162,6 +155,7 @@ final class PdoEntitlementRepository implements EntitlementRepository
             startsAt: new DateTimeImmutable((string) $row['starts_at']),
             expiresAt: $row['expires_at'] !== null ? new DateTimeImmutable((string) $row['expires_at']) : null,
             revokedAt: $row['revoked_at'] !== null ? new DateTimeImmutable((string) $row['revoked_at']) : null,
+            metadata: $metadata,
         );
     }
 }

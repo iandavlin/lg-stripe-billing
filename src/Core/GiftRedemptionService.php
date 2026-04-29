@@ -66,8 +66,9 @@ final class GiftRedemptionService
 
         // Case 2: same tier — silent extend.
         if ($existingTier === $incomingTier) {
-            $totalDays = $existingDays + $incomingDays;
-            $this->revokeAndConsolidate($customerId, $activeGifts, $incomingTier, $totalDays, $giftCode->id, $now);
+            $totalDays   = $existingDays + $incomingDays;
+            $contributors = $this->contributingIds($activeGifts, $giftCode->id);
+            $this->revokeAndConsolidate($customerId, $activeGifts, $incomingTier, $totalDays, $giftCode->id, $now, 'extend_same_tier', $contributors);
             $this->giftCodes->redeem($giftCode->id, $customerId);
             $this->wpSync->trigger($customerId);
             $expiresAt = $now->add(new DateInterval('P' . $totalDays . 'D'));
@@ -112,8 +113,7 @@ final class GiftRedemptionService
         DateTimeImmutable  $now,
     ): array {
         $convertedDays = $this->convertedDays($tierHigher, $tierLower, $daysHigher, $daysLower);
-        // $convertedDays['lower_to_higher'] = lower-tier days re-expressed in higher-tier days
-        // $convertedDays['higher_to_lower'] = higher-tier days re-expressed in lower-tier days
+        $contributors  = $this->contributingIds($activeGifts, $giftCode->id);
 
         // Revoke all existing gift entitlements; we'll write fresh rows.
         foreach ($activeGifts as $e) {
@@ -122,17 +122,13 @@ final class GiftRedemptionService
 
         switch ($strategy) {
             case self::STRATEGY_STACK_HIGHER_FIRST: {
-                // Higher tier active first; lower starts when higher ends.
                 $higherStart = $now;
                 $higherEnd   = $now->add(new DateInterval('P' . $daysHigher . 'D'));
                 $lowerStart  = $higherEnd;
                 $lowerEnd    = $lowerStart->add(new DateInterval('P' . $daysLower . 'D'));
-                $this->grantGift($customerId, $tierHigher, $giftCode->id, $higherStart, $higherEnd);
-                $this->grantGift($customerId, $tierLower,  $giftCode->id, $lowerStart,  $lowerEnd);
-                $msg = sprintf(
-                    '%s for %d days, then %s for %d days (total %d).',
-                    $tierHigher, $daysHigher, $tierLower, $daysLower, $daysHigher + $daysLower,
-                );
+                $this->grantGift($customerId, $tierHigher, $giftCode->id, $higherStart, $higherEnd, $strategy, $contributors);
+                $this->grantGift($customerId, $tierLower,  $giftCode->id, $lowerStart,  $lowerEnd,  $strategy, $contributors);
+                $msg = sprintf('%s for %d days, then %s for %d days (total %d).', $tierHigher, $daysHigher, $tierLower, $daysLower, $daysHigher + $daysLower);
                 $finalExpires = $lowerEnd;
                 break;
             }
@@ -141,19 +137,16 @@ final class GiftRedemptionService
                 $lowerEnd    = $now->add(new DateInterval('P' . $daysLower . 'D'));
                 $higherStart = $lowerEnd;
                 $higherEnd   = $higherStart->add(new DateInterval('P' . $daysHigher . 'D'));
-                $this->grantGift($customerId, $tierLower,  $giftCode->id, $lowerStart,  $lowerEnd);
-                $this->grantGift($customerId, $tierHigher, $giftCode->id, $higherStart, $higherEnd);
-                $msg = sprintf(
-                    '%s for %d days, then %s for %d days (total %d).',
-                    $tierLower, $daysLower, $tierHigher, $daysHigher, $daysHigher + $daysLower,
-                );
+                $this->grantGift($customerId, $tierLower,  $giftCode->id, $lowerStart,  $lowerEnd,  $strategy, $contributors);
+                $this->grantGift($customerId, $tierHigher, $giftCode->id, $higherStart, $higherEnd, $strategy, $contributors);
+                $msg = sprintf('%s for %d days, then %s for %d days (total %d).', $tierLower, $daysLower, $tierHigher, $daysHigher, $daysHigher + $daysLower);
                 $finalExpires = $higherEnd;
                 break;
             }
             case self::STRATEGY_PRORATE_TO_HIGHER: {
                 $totalDays = $daysHigher + $convertedDays['lower_to_higher'];
                 $expires   = $now->add(new DateInterval('P' . $totalDays . 'D'));
-                $this->grantGift($customerId, $tierHigher, $giftCode->id, $now, $expires);
+                $this->grantGift($customerId, $tierHigher, $giftCode->id, $now, $expires, $strategy, $contributors);
                 $msg = sprintf('%s for %d days (prorated).', $tierHigher, $totalDays);
                 $finalExpires = $expires;
                 break;
@@ -161,7 +154,7 @@ final class GiftRedemptionService
             case self::STRATEGY_PRORATE_TO_LOWER: {
                 $totalDays = $daysLower + $convertedDays['higher_to_lower'];
                 $expires   = $now->add(new DateInterval('P' . $totalDays . 'D'));
-                $this->grantGift($customerId, $tierLower, $giftCode->id, $now, $expires);
+                $this->grantGift($customerId, $tierLower, $giftCode->id, $now, $expires, $strategy, $contributors);
                 $msg = sprintf('%s for %d days (prorated).', $tierLower, $totalDays);
                 $finalExpires = $expires;
                 break;
@@ -298,21 +291,63 @@ final class GiftRedemptionService
         int               $totalDays,
         int               $giftCodeId,
         DateTimeImmutable $now,
+        ?string           $strategy = null,
+        array             $contributors = [],
     ): void {
         foreach ($activeGifts as $e) {
             $this->entitlements->revoke($e->id);
         }
         $expires = $now->add(new DateInterval('P' . $totalDays . 'D'));
-        $this->grantGift($customerId, $tier, $giftCodeId, $now, $expires);
+        $this->grantGift($customerId, $tier, $giftCodeId, $now, $expires, $strategy, $contributors);
     }
 
+    /**
+     * Collect gift code IDs that contributed to the current entitlement state,
+     * including the new code being applied. Reads contributors from each
+     * active row's metadata if present (preserves chain across redemptions),
+     * else falls back to the row's source_id.
+     *
+     * @param Entitlement[] $activeGifts
+     * @return int[]
+     */
+    private function contributingIds(array $activeGifts, int $newGiftCodeId): array
+    {
+        $ids = [$newGiftCodeId];
+        foreach ($activeGifts as $e) {
+            $meta = $e->metadata ?? null;
+            if (is_array($meta) && isset($meta['contributing_gift_code_ids']) && is_array($meta['contributing_gift_code_ids'])) {
+                foreach ($meta['contributing_gift_code_ids'] as $id) {
+                    $ids[] = (int) $id;
+                }
+                continue;
+            }
+            if ($e->sourceId !== null) {
+                $ids[] = $e->sourceId;
+            }
+        }
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * @param int[] $contributingGiftCodeIds  Gift codes whose value contributed to this row.
+     */
     private function grantGift(
         int               $customerId,
         string            $tier,
         int               $giftCodeId,
         DateTimeImmutable $startsAt,
         DateTimeImmutable $expiresAt,
+        ?string           $strategy = null,
+        array             $contributingGiftCodeIds = [],
     ): Entitlement {
+        $metadata = null;
+        if ($strategy !== null || $contributingGiftCodeIds !== []) {
+            $metadata = [
+                'strategy'                   => $strategy,
+                'contributing_gift_code_ids' => $contributingGiftCodeIds !== [] ? $contributingGiftCodeIds : [$giftCodeId],
+                'applied_at'                 => (new DateTimeImmutable())->format(DATE_ATOM),
+            ];
+        }
         return $this->entitlements->grant(
             $customerId,
             Entitlement::KIND_MEMBERSHIP_TIER,
@@ -321,6 +356,7 @@ final class GiftRedemptionService
             $giftCodeId,
             $expiresAt,
             $startsAt,
+            $metadata,
         );
     }
 

@@ -17,11 +17,17 @@ readonly class GiftCode
         public ?int               $redeemedBy,
         public ?string            $stripeSessionId,
         public ?DateTimeImmutable $redeemedAt,
+        public ?DateTimeImmutable $voidedAt,
         public DateTimeImmutable  $createdAt,
     ) {}
 
     public function isRedeemed(): bool
     {
         return $this->redeemedAt !== null;
+    }
+
+    public function isVoided(): bool
+    {
+        return $this->voidedAt !== null;
     }
 }

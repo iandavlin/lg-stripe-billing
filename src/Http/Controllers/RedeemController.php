@@ -44,6 +44,9 @@ final class RedeemController
         if ($giftCode === null) {
             return self::json($response, ['error' => 'Invalid code.'], 404);
         }
+        if ($giftCode->isVoided()) {
+            return self::json($response, ['error' => 'This code has been refunded and is no longer valid.'], 410);
+        }
         if ($giftCode->isRedeemed()) {
             return self::json($response, ['error' => 'Code has already been redeemed.'], 409);
         }

@@ -69,6 +69,37 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
         $stmt->execute([$redeemedBy, $giftCodeId]);
     }
 
+    public function voidByStripeSessionId(string $stripeSessionId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, redeemed_at FROM gift_codes
+             WHERE stripe_session_id = ? AND voided_at IS NULL'
+        );
+        $stmt->execute([$stripeSessionId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $voided          = [];
+        $alreadyRedeemed = [];
+        foreach ($rows as $row) {
+            $id = (int) $row['id'];
+            if ($row['redeemed_at'] !== null) {
+                $alreadyRedeemed[] = $id;
+                continue;
+            }
+            $voided[] = $id;
+        }
+
+        if ($voided !== []) {
+            $in   = implode(', ', array_fill(0, count($voided), '?'));
+            $stmt = $this->pdo->prepare(
+                "UPDATE gift_codes SET voided_at = NOW() WHERE id IN ({$in})"
+            );
+            $stmt->execute($voided);
+        }
+
+        return ['voided' => $voided, 'already_redeemed' => $alreadyRedeemed];
+    }
+
     /** @return string[] */
     private function generateUniqueCodes(int $count): array
     {
@@ -115,6 +146,7 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
             redeemedBy:      $row['redeemed_by'] !== null ? (int) $row['redeemed_by'] : null,
             stripeSessionId: $row['stripe_session_id'] !== null ? (string) $row['stripe_session_id'] : null,
             redeemedAt:      $row['redeemed_at'] !== null ? new DateTimeImmutable((string) $row['redeemed_at']) : null,
+            voidedAt:        isset($row['voided_at']) && $row['voided_at'] !== null ? new DateTimeImmutable((string) $row['voided_at']) : null,
             createdAt:       new DateTimeImmutable((string) $row['created_at']),
         );
     }
