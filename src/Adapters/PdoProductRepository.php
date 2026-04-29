@@ -172,8 +172,8 @@ final class PdoProductRepository implements ProductRepository
     {
         $stmt = $this->pdo->query(
             "SELECT p.stripe_product_id, p.name, p.ref,
-                    pr.stripe_price_id, pr.interval, pr.unit_amount_cents,
-                    pr.currency, pr.region_tag
+                    pr.stripe_price_id, pr.type, pr.interval, pr.unit_amount_cents,
+                    pr.currency, pr.region_tag, pr.grants_duration_days
              FROM products p
              JOIN prices pr ON pr.product_id = p.id AND pr.active = 1
              WHERE p.kind = 'membership' AND p.active = 1
@@ -192,11 +192,13 @@ final class PdoProductRepository implements ProductRepository
                 ];
             }
             $map[$pid]['prices'][] = [
-                'stripe_price_id'   => $row['stripe_price_id'],
-                'interval'          => $row['interval'],
-                'unit_amount_cents' => (int) $row['unit_amount_cents'],
-                'currency'          => $row['currency'],
-                'region_tag'        => $row['region_tag'],
+                'stripe_price_id'      => $row['stripe_price_id'],
+                'type'                 => $row['type'],
+                'interval'             => $row['interval'],
+                'unit_amount_cents'    => (int) $row['unit_amount_cents'],
+                'currency'             => $row['currency'],
+                'region_tag'           => $row['region_tag'],
+                'grants_duration_days' => $row['grants_duration_days'] !== null ? (int) $row['grants_duration_days'] : null,
             ];
         }
 
