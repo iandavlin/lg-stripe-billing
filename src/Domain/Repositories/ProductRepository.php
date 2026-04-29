@@ -26,6 +26,14 @@ interface ProductRepository
     public function grantsDurationDays(string $stripePriceId): ?int;
 
     /**
+     * Raw price data needed for gift/bulk checkout: amount, currency, interval,
+     * and optional duration. Null if the price isn't in our DB.
+     *
+     * @return array{unit_amount_cents:int,currency:string,interval:string|null,grants_duration_days:int|null}|null
+     */
+    public function findPriceData(string $stripePriceId): ?array;
+
+    /**
      * Upsert a product from a Stripe product.* webhook event.
      * ref is preserved from the DB if the incoming value is null.
      */

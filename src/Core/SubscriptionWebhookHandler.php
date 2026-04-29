@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace LGSB\Core;
 
 use DateTimeImmutable;
-use LGSB\Contracts\SettingsStore;
 use LGSB\Domain\Repositories\CustomerRepository;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Domain\Repositories\SubscriptionRepository;
@@ -20,7 +19,7 @@ final class SubscriptionWebhookHandler
         private readonly SubscriptionRepository $subscriptions,
         private readonly ProductRepository      $products,
         private readonly EntitlementManager     $entitlements,
-        private readonly SettingsStore          $settings,
+        private readonly WpSync                 $wpSync,
     ) {}
 
     /**
@@ -68,34 +67,7 @@ final class SubscriptionWebhookHandler
             // past_due: subscription row updated above; entitlement untouched (retry window policy)
         }
 
-        $this->triggerWpSync($customer->id);
-    }
-
-    private function triggerWpSync(int $customerId): void
-    {
-        $url    = $this->settings->getSyncEndpointUrl();
-        $secret = $this->settings->getSyncSharedSecret();
-        if ($url === '' || $secret === '') {
-            return;
-        }
-
-        $ch = curl_init($url);
-        if ($ch === false) {
-            return;
-        }
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 3,
-            CURLOPT_CONNECTTIMEOUT => 2,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'X-LGMS-Token: ' . $secret,
-            ],
-            CURLOPT_POSTFIELDS => json_encode(['customer_id' => $customerId]),
-        ]);
-        @curl_exec($ch);
-        curl_close($ch);
+        $this->wpSync->trigger($customer->id);
     }
 
     private static function tsToDate(mixed $ts): ?DateTimeImmutable

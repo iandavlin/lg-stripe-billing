@@ -14,6 +14,7 @@ readonly class Entitlement
 
     public const SOURCE_SUBSCRIPTION = 'subscription';
     public const SOURCE_ORDER        = 'order';
+    public const SOURCE_GIFT_CODE    = 'gift_code';
     public const SOURCE_MANUAL       = 'manual';
     public const SOURCE_COMP         = 'comp';
 

@@ -19,24 +19,35 @@ final class CheckoutController
         private readonly CustomerManager $customers,
     ) {}
 
-    /** POST /v1/checkout  — body: { price_id, email?, country? } */
+    /** POST /v1/checkout  — body: { price_id, quantity?, email?, country? } */
     public function create(Request $request, Response $response): Response
     {
-        $body    = (array) $request->getParsedBody();
-        $priceId = trim((string) ($body['price_id'] ?? ''));
-        $email   = trim((string) ($body['email']    ?? ''));
-        $country = trim((string) ($body['country']  ?? ''));
+        $body     = (array) $request->getParsedBody();
+        $priceId  = trim((string) ($body['price_id']  ?? ''));
+        $email    = trim((string) ($body['email']     ?? ''));
+        $country  = trim((string) ($body['country']   ?? ''));
+        $quantity = (int) ($body['quantity'] ?? 1);
 
         if ($priceId === '') {
             return self::json($response, ['error' => 'price_id is required'], 400);
         }
+        if ($quantity < 1) {
+            return self::json($response, ['error' => 'quantity must be >= 1'], 400);
+        }
 
         try {
-            $result = $this->checkout->createSubscriptionSession(
-                $priceId,
-                $email   !== '' ? $email   : null,
-                $country !== '' ? $country : null,
-            );
+            $result = $quantity >= 2
+                ? $this->checkout->createGiftCheckoutSession(
+                    $priceId,
+                    $quantity,
+                    $email   !== '' ? $email   : null,
+                    $country !== '' ? $country : null,
+                )
+                : $this->checkout->createSubscriptionSession(
+                    $priceId,
+                    $email   !== '' ? $email   : null,
+                    $country !== '' ? $country : null,
+                );
         } catch (InvalidArgumentException $e) {
             return self::json($response, ['error' => $e->getMessage()], 400);
         }

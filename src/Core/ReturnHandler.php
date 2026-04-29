@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace LGSB\Core;
 
 use DateTimeImmutable;
-use LGSB\Contracts\SettingsStore;
+use LGSB\Domain\Repositories\GiftCodeRepository;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Domain\Repositories\SubscriptionRepository;
 use LGSB\Stripe\StripeGateway;
@@ -13,9 +13,9 @@ use LGSB\Stripe\StripeGateway;
 /**
  * Handles the synchronous return URL after Stripe Checkout.
  *
- * Provisions customer + subscription + entitlement immediately so the
- * user feels instant activation. The polling WP plugin catches up
- * any other state changes in the background.
+ * Two paths:
+ *   subscription → provision customer + subscription + entitlement immediately
+ *   payment/gift  → generate N gift codes, email to purchaser
  */
 class ReturnHandler
 {
@@ -25,16 +25,13 @@ class ReturnHandler
         private readonly CustomerManager        $customers,
         private readonly SubscriptionRepository $subscriptions,
         private readonly EntitlementManager     $entitlements,
-        private readonly SettingsStore          $settings,
+        private readonly GiftCodeRepository     $giftCodes,
+        private readonly GiftCodeMailer         $mailer,
+        private readonly WpSync                 $wpSync,
     ) {}
 
     /**
-     * @return array{
-     *     ok: bool,
-     *     message: string,
-     *     customer_id?: int,
-     *     tier?: string,
-     * }
+     * @return array{ok:bool,message:string,customer_id?:int,tier?:string,quantity?:int}
      */
     public function handle(string $sessionId): array
     {
@@ -50,10 +47,21 @@ class ReturnHandler
             ];
         }
 
-        if (($session->mode ?? '') !== 'subscription') {
-            return ['ok' => false, 'message' => 'Not a subscription checkout.'];
+        $mode = (string) ($session->mode ?? '');
+
+        if ($mode === 'payment') {
+            return $this->handleGift($session);
         }
 
+        if ($mode !== 'subscription') {
+            return ['ok' => false, 'message' => "Unhandled checkout mode: {$mode}."];
+        }
+
+        return $this->handleSubscription($session);
+    }
+
+    private function handleSubscription(object $session): array
+    {
         $stripeCustomerId = (string) ($session->customer ?? '');
         $email            = (string) ($session->customer_details->email ?? $session->customer_email ?? '');
         $name             = trim((string) ($session->customer_details->name ?? ''));
@@ -94,8 +102,7 @@ class ReturnHandler
             $subscription->id,
         );
 
-        // Fire-and-forget: nudge the WP plugin to provision the user + sync roles.
-        $this->triggerWpSync($customer->id);
+        $this->wpSync->trigger($customer->id);
 
         return [
             'ok'          => true,
@@ -105,36 +112,49 @@ class ReturnHandler
         ];
     }
 
-    /**
-     * POST to the WP plugin's /sync-customer endpoint. Best-effort:
-     * a short timeout, errors swallowed. The plugin's hourly cron is
-     * the safety net if this call fails.
-     */
-    private function triggerWpSync(int $customerId): void
+    private function handleGift(object $session): array
     {
-        $url    = $this->settings->getSyncEndpointUrl();
-        $secret = $this->settings->getSyncSharedSecret();
-        if ($url === '' || $secret === '') {
-            return;
+        $meta = $session->metadata;
+        if (($meta->checkout_type ?? '') !== 'gift') {
+            return ['ok' => false, 'message' => 'Unknown payment checkout type.'];
         }
 
-        $ch = curl_init($url);
-        if ($ch === false) {
-            return;
+        $email        = (string) ($session->customer_details->email ?? $session->customer_email ?? '');
+        $name         = trim((string) ($session->customer_details->name ?? ''));
+        $country      = $session->customer_details->address->country ?? null;
+        $tier         = (string) ($meta->tier ?? '');
+        $quantity     = max(1, (int) ($meta->quantity ?? 1));
+        $durationDays = max(1, (int) ($meta->duration_days ?? 365));
+
+        if ($email === '' || $tier === '') {
+            return ['ok' => false, 'message' => 'Gift session missing email or tier.'];
         }
-        curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 3,
-            CURLOPT_CONNECTTIMEOUT => 2,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'X-LGMS-Token: ' . $secret,
-            ],
-            CURLOPT_POSTFIELDS     => json_encode(['customer_id' => $customerId]),
-        ]);
-        @curl_exec($ch);
-        curl_close($ch);
+
+        $stripeCustomerId = (string) ($session->customer ?? '');
+        $customer = $this->customers->findOrCreate(
+            $email,
+            $stripeCustomerId !== '' ? $stripeCustomerId : null,
+            $name ?: null,
+            $country,
+        );
+
+        $codes = $this->giftCodes->createBatch(
+            $quantity,
+            $customer->id,
+            $tier,
+            $durationDays,
+            (string) $session->id,
+        );
+
+        $this->mailer->sendGiftCodes($email, $name ?: 'Looth Member', $codes);
+
+        return [
+            'ok'          => true,
+            'message'     => "Generated {$quantity} gift code(s) for {$email}",
+            'customer_id' => $customer->id,
+            'tier'        => $tier,
+            'quantity'    => $quantity,
+        ];
     }
 
     private static function tsToDate(mixed $ts): ?DateTimeImmutable

@@ -6,11 +6,13 @@ use LGSB\Adapters\EnvSettingsStore;
 use LGSB\Adapters\LiveStripeGateway;
 use LGSB\Adapters\PdoCustomerRepository;
 use LGSB\Adapters\PdoEntitlementRepository;
+use LGSB\Adapters\PdoGiftCodeRepository;
 use LGSB\Adapters\PdoProductRepository;
 use LGSB\Adapters\PdoSubscriptionRepository;
 use LGSB\Contracts\SettingsStore;
 use LGSB\Domain\Repositories\CustomerRepository;
 use LGSB\Domain\Repositories\EntitlementRepository;
+use LGSB\Domain\Repositories\GiftCodeRepository;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Domain\Repositories\SubscriptionRepository;
 use LGSB\Stripe\StripeGateway;
@@ -66,7 +68,10 @@ return [
     ProductRepository::class => fn (ContainerInterface $c): ProductRepository =>
         new PdoProductRepository($c->get(PDO::class)),
 
+    GiftCodeRepository::class => fn (ContainerInterface $c): GiftCodeRepository =>
+        new PdoGiftCodeRepository($c->get(PDO::class)),
+
     /* Core services (CheckoutService, CustomerManager, EntitlementManager,
-       ReturnHandler) and HTTP controllers are autowired by PHP-DI from
-       their constructor signatures — nothing to declare here. */
+       ReturnHandler, WpSync, BulkPricer, GiftCodeMailer) and HTTP controllers
+       are autowired by PHP-DI from their constructor signatures. */
 ];

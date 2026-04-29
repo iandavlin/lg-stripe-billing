@@ -29,4 +29,15 @@ interface SettingsStore
 
     /** Stripe webhook signing secret (whsec_…). Empty string = signature check skipped. */
     public function getWebhookSecret(): string;
+
+    /**
+     * Bulk discount tiers parsed from BULK_DISCOUNT_TIERS env var ("10:10,20:20,50:30").
+     * Sorted descending by min_qty. Empty array = no bulk discounts.
+     *
+     * @return array<array{min:int,pct:int}>
+     */
+    public function getBulkDiscountTiers(): array;
+
+    /** From address for transactional email (e.g. noreply@loothgroup.com). */
+    public function getMailFrom(): string;
 }

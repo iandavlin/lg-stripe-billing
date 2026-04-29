@@ -55,6 +55,17 @@ class EntitlementManager
         );
     }
 
+    public function grant(
+        int                $customerId,
+        string             $kind,
+        string             $ref,
+        string             $sourceType,
+        ?int               $sourceId,
+        ?DateTimeImmutable $expiresAt,
+    ): Entitlement {
+        return $this->entitlements->grant($customerId, $kind, $ref, $sourceType, $sourceId, $expiresAt);
+    }
+
     public function revokeForSubscription(int $subscriptionId): void
     {
         $this->entitlements->revokeBySource(Entitlement::SOURCE_SUBSCRIPTION, $subscriptionId);

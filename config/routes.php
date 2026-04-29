@@ -6,6 +6,7 @@ use LGSB\Http\Controllers\CheckoutController;
 use LGSB\Http\Controllers\ConfigController;
 use LGSB\Http\Controllers\HealthController;
 use LGSB\Http\Controllers\ProductsController;
+use LGSB\Http\Controllers\RedeemController;
 use LGSB\Http\Controllers\WebhookController;
 use Slim\App;
 use Slim\Routing\RouteCollectorProxy;
@@ -19,6 +20,7 @@ return function (App $app): void {
         $g->post('/checkout', [CheckoutController::class, 'create']);
         $g->post('/portal',   [CheckoutController::class, 'portal']);
         $g->get( '/return',   [CheckoutController::class, 'handleReturn']);
+        $g->post('/redeem',   [RedeemController::class,   'redeem']);
         $g->post('/webhook',  [WebhookController::class,  'handle']);
     });
 };

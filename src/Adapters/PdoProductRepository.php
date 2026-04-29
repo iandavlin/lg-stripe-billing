@@ -67,6 +67,25 @@ final class PdoProductRepository implements ProductRepository
         return ($val !== false && $val !== null) ? (int) $val : null;
     }
 
+    public function findPriceData(string $stripePriceId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT unit_amount_cents, currency, `interval`, grants_duration_days
+             FROM prices WHERE stripe_price_id = ? LIMIT 1'
+        );
+        $stmt->execute([$stripePriceId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
+        return [
+            'unit_amount_cents'    => (int) $row['unit_amount_cents'],
+            'currency'             => (string) $row['currency'],
+            'interval'             => $row['interval'] !== null ? (string) $row['interval'] : null,
+            'grants_duration_days' => $row['grants_duration_days'] !== null ? (int) $row['grants_duration_days'] : null,
+        ];
+    }
+
     public function upsertProduct(
         string  $stripeProductId,
         string  $name,

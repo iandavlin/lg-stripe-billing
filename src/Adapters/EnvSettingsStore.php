@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LGSB\Adapters;
 
 use LGSB\Contracts\SettingsStore;
+use LGSB\Core\BulkPricer;
 
 final class EnvSettingsStore implements SettingsStore
 {
@@ -42,6 +43,16 @@ final class EnvSettingsStore implements SettingsStore
     public function getWebhookSecret(): string
     {
         return self::env('STRIPE_WEBHOOK_SECRET');
+    }
+
+    public function getBulkDiscountTiers(): array
+    {
+        return BulkPricer::fromEnvString(self::env('BULK_DISCOUNT_TIERS'))->tiers();
+    }
+
+    public function getMailFrom(): string
+    {
+        return self::env('MAIL_FROM');
     }
 
     private static function env(string $key): string
