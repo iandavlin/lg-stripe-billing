@@ -24,6 +24,12 @@ interface StripeGateway
     public function createPortalSession(string $stripeCustomerId, string $returnUrl): object;
 
     /**
+     * Resolve a customer-facing promotion code string (e.g. "PATREON5") to a
+     * Stripe promotion_code ID (e.g. "promo_xxx"). Null if not found / inactive.
+     */
+    public function findPromotionCodeId(string $code): ?string;
+
+    /**
      * Verify and decode a Stripe webhook payload.
      *
      * @throws \Stripe\Exception\SignatureVerificationException on bad signature

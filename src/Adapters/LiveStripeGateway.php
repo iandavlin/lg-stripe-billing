@@ -53,4 +53,18 @@ final class LiveStripeGateway implements StripeGateway
     {
         return \Stripe\Webhook::constructEvent($payload, $sigHeader, $secret);
     }
+
+    public function findPromotionCodeId(string $code): ?string
+    {
+        $resp = $this->stripe->promotionCodes->all([
+            'code'   => $code,
+            'active' => true,
+            'limit'  => 1,
+        ]);
+        $data = $resp->data ?? [];
+        if ($data === []) {
+            return null;
+        }
+        return (string) $data[0]->id;
+    }
 }

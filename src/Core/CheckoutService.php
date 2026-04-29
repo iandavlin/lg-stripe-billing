@@ -26,8 +26,9 @@ class CheckoutService
      */
     public function createSubscriptionSession(
         string  $priceId,
-        ?string $email = null,
-        ?string $country = null,
+        ?string $email    = null,
+        ?string $country  = null,
+        ?string $promoCode = null,
     ): array {
         if ($this->products->tierForPrice($priceId) === null) {
             throw new InvalidArgumentException("Price {$priceId} is not mapped to a membership tier.");
@@ -36,24 +37,101 @@ class CheckoutService
         $resolvedPriceId = $this->products->resolvePriceForCountry($priceId, $country);
 
         $params = [
-            'ui_mode'               => 'embedded',
-            'mode'                  => 'subscription',
-            'line_items'            => [['price' => $resolvedPriceId, 'quantity' => 1]],
-            'return_url'            => $this->settings->getCheckoutReturnUrl(),
-            'allow_promotion_codes' => true,
+            'ui_mode'    => 'embedded',
+            'mode'       => 'subscription',
+            'line_items' => [['price' => $resolvedPriceId, 'quantity' => 1]],
+            'return_url' => $this->settings->getCheckoutReturnUrl(),
         ];
 
-        if ($email !== null && $email !== '') {
-            $customer = $this->customers->findOrCreate($email, null, null, $country);
-            if ($customer->stripeCustomerId !== null) {
-                $params['customer'] = $customer->stripeCustomerId;
-            } else {
-                $params['customer_email'] = $email;
-            }
-        }
+        $this->applyPromoOrAllow($params, $promoCode);
+        $this->attachCustomer($params, $email, $country);
 
         $session = $this->stripe->createCheckoutSession($params);
         return ['clientSecret' => (string) $session->client_secret];
+    }
+
+    /**
+     * Create an embedded-mode Checkout Session for a one-time membership
+     * purchase (e.g. "Pay $66 for a year of Looth LITE — no auto-renew").
+     *
+     * @return array{clientSecret:string}
+     */
+    public function createOneTimeMembershipSession(
+        string  $priceId,
+        ?string $email     = null,
+        ?string $country   = null,
+        ?string $promoCode = null,
+    ): array {
+        $tier = $this->products->tierForPrice($priceId);
+        if ($tier === null) {
+            throw new InvalidArgumentException("Price {$priceId} is not mapped to a membership tier.");
+        }
+
+        $priceData = $this->products->findPriceData($priceId);
+        if ($priceData === null) {
+            throw new InvalidArgumentException("Price {$priceId} not found.");
+        }
+        if ($priceData['interval'] !== null) {
+            throw new InvalidArgumentException("Price {$priceId} is recurring; use createSubscriptionSession.");
+        }
+        $durationDays = $priceData['grants_duration_days'] ?? 365;
+
+        $resolvedPriceId = $this->products->resolvePriceForCountry($priceId, $country);
+
+        $params = [
+            'ui_mode'    => 'embedded',
+            'mode'       => 'payment',
+            'line_items' => [['price' => $resolvedPriceId, 'quantity' => 1]],
+            'return_url' => $this->settings->getCheckoutReturnUrl(),
+            'metadata'   => [
+                'checkout_type' => 'membership_annual',
+                'tier'          => $tier,
+                'price_id'      => $priceId,
+                'duration_days' => (string) $durationDays,
+            ],
+        ];
+
+        $this->applyPromoOrAllow($params, $promoCode);
+        $this->attachCustomer($params, $email, $country);
+
+        $session = $this->stripe->createCheckoutSession($params);
+        return ['clientSecret' => (string) $session->client_secret];
+    }
+
+    /**
+     * If a promo code string is supplied, resolve it to a Stripe promotion_code
+     * ID and apply via `discounts`. Otherwise enable `allow_promotion_codes` so
+     * the customer can enter one on the Stripe Checkout page.
+     *
+     * Unknown / inactive codes silently fall back to allow_promotion_codes — we
+     * don't want a stale link to break checkout entirely.
+     */
+    private function applyPromoOrAllow(array &$params, ?string $promoCode): void
+    {
+        if ($promoCode === null || $promoCode === '') {
+            $params['allow_promotion_codes'] = true;
+            return;
+        }
+        $promoId = $this->stripe->findPromotionCodeId($promoCode);
+        if ($promoId === null) {
+            $params['allow_promotion_codes'] = true;
+            return;
+        }
+        // Stripe disallows mixing `discounts` with `allow_promotion_codes`.
+        $params['discounts'] = [['promotion_code' => $promoId]];
+    }
+
+    private function attachCustomer(array &$params, ?string $email, ?string $country): void
+    {
+        if ($email === null || $email === '') {
+            return;
+        }
+        $customer = $this->customers->findOrCreate($email, null, null, $country);
+        if ($customer->stripeCustomerId !== null) {
+            $params['customer'] = $customer->stripeCustomerId;
+        } else {
+            $params['customer_email'] = $email;
+        }
     }
 
     /**
@@ -66,8 +144,9 @@ class CheckoutService
     public function createGiftCheckoutSession(
         string  $priceId,
         int     $quantity,
-        ?string $email   = null,
-        ?string $country = null,
+        ?string $email     = null,
+        ?string $country   = null,
+        ?string $promoCode = null,
     ): array {
         if ($quantity < 2) {
             throw new InvalidArgumentException('Gift checkout requires quantity >= 2.');
@@ -101,9 +180,9 @@ class CheckoutService
             'line_items' => [[
                 'quantity'   => $quantity,
                 'price_data' => [
-                    'currency'    => $priceData['currency'],
-                    'unit_amount' => $unitCents,
-                    'product'     => $priceData['stripe_product_id'],
+                    'currency'     => $priceData['currency'],
+                    'unit_amount'  => $unitCents,
+                    'product_data' => ['name' => "{$priceData['product_name']} — {$quantity}-Seat Gift Pack"],
                 ],
             ]],
             'return_url' => $this->settings->getCheckoutReturnUrl(),
@@ -116,14 +195,8 @@ class CheckoutService
             ],
         ];
 
-        if ($email !== null && $email !== '') {
-            $customer = $this->customers->findOrCreate($email, null, null, $country);
-            if ($customer->stripeCustomerId !== null) {
-                $params['customer'] = $customer->stripeCustomerId;
-            } else {
-                $params['customer_email'] = $email;
-            }
-        }
+        $this->applyPromoOrAllow($params, $promoCode);
+        $this->attachCustomer($params, $email, $country);
 
         $session = $this->stripe->createCheckoutSession($params);
         return ['clientSecret' => (string) $session->client_secret];

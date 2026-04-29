@@ -8,25 +8,35 @@ use InvalidArgumentException;
 use LGSB\Core\CheckoutService;
 use LGSB\Core\CustomerManager;
 use LGSB\Core\ReturnHandler;
+use LGSB\Domain\Repositories\ProductRepository;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 final class CheckoutController
 {
     public function __construct(
-        private readonly CheckoutService $checkout,
-        private readonly ReturnHandler   $returnHandler,
-        private readonly CustomerManager $customers,
+        private readonly CheckoutService    $checkout,
+        private readonly ReturnHandler      $returnHandler,
+        private readonly CustomerManager    $customers,
+        private readonly ProductRepository  $products,
     ) {}
 
-    /** POST /v1/checkout  — body: { price_id, quantity?, email?, country? } */
+    /**
+     * POST /v1/checkout — body: { price_id, quantity?, email?, country?, promo_code? }
+     *
+     * Routes the request based on quantity and price type:
+     *   quantity >= 2                          → gift session (one-time, qty seats)
+     *   quantity = 1 + recurring price         → subscription session
+     *   quantity = 1 + one_time membership price → one-time membership session
+     */
     public function create(Request $request, Response $response): Response
     {
-        $body     = (array) $request->getParsedBody();
-        $priceId  = trim((string) ($body['price_id']  ?? ''));
-        $email    = trim((string) ($body['email']     ?? ''));
-        $country  = trim((string) ($body['country']   ?? ''));
-        $quantity = (int) ($body['quantity'] ?? 1);
+        $body      = (array) $request->getParsedBody();
+        $priceId   = trim((string) ($body['price_id']   ?? ''));
+        $email     = trim((string) ($body['email']      ?? ''));
+        $country   = trim((string) ($body['country']    ?? ''));
+        $promoCode = trim((string) ($body['promo_code'] ?? ''));
+        $quantity  = (int)        ($body['quantity']    ?? 1);
 
         if ($priceId === '') {
             return self::json($response, ['error' => 'price_id is required'], 400);
@@ -35,19 +45,26 @@ final class CheckoutController
             return self::json($response, ['error' => 'quantity must be >= 1'], 400);
         }
 
+        $emailArg   = $email     !== '' ? $email     : null;
+        $countryArg = $country   !== '' ? $country   : null;
+        $promoArg   = $promoCode !== '' ? $promoCode : null;
+
         try {
-            $result = $quantity >= 2
-                ? $this->checkout->createGiftCheckoutSession(
-                    $priceId,
-                    $quantity,
-                    $email   !== '' ? $email   : null,
-                    $country !== '' ? $country : null,
-                )
-                : $this->checkout->createSubscriptionSession(
-                    $priceId,
-                    $email   !== '' ? $email   : null,
-                    $country !== '' ? $country : null,
+            if ($quantity >= 2) {
+                $result = $this->checkout->createGiftCheckoutSession(
+                    $priceId, $quantity, $emailArg, $countryArg, $promoArg,
                 );
+            } else {
+                $priceData = $this->products->findPriceData($priceId);
+                $isOneTime = $priceData !== null && $priceData['interval'] === null;
+                $result = $isOneTime
+                    ? $this->checkout->createOneTimeMembershipSession(
+                        $priceId, $emailArg, $countryArg, $promoArg,
+                    )
+                    : $this->checkout->createSubscriptionSession(
+                        $priceId, $emailArg, $countryArg, $promoArg,
+                    );
+            }
         } catch (InvalidArgumentException $e) {
             return self::json($response, ['error' => $e->getMessage()], 400);
         }

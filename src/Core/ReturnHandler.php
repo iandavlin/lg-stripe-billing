@@ -50,7 +50,12 @@ class ReturnHandler
         $mode = (string) ($session->mode ?? '');
 
         if ($mode === 'payment') {
-            return $this->handleGift($session);
+            $checkoutType = (string) ($session->metadata->checkout_type ?? '');
+            return match ($checkoutType) {
+                'gift'              => $this->handleGift($session),
+                'membership_annual' => $this->handleOneTimeMembership($session),
+                default             => ['ok' => false, 'message' => "Unknown payment checkout type: {$checkoutType}."],
+            };
         }
 
         if ($mode !== 'subscription') {
@@ -58,6 +63,52 @@ class ReturnHandler
         }
 
         return $this->handleSubscription($session);
+    }
+
+    /**
+     * Handle a one-time annual membership purchase. Customer paid for a fixed
+     * duration (no Stripe subscription); we grant an entitlement with explicit
+     * expires_at and source_type='order'.
+     */
+    private function handleOneTimeMembership(object $session): array
+    {
+        $meta = $session->metadata;
+        $stripeCustomerId = (string) ($session->customer ?? '');
+        $email            = (string) ($session->customer_details->email ?? $session->customer_email ?? '');
+        $name             = trim((string) ($session->customer_details->name ?? ''));
+        $country          = $session->customer_details->address->country ?? null;
+        $tier             = (string) ($meta->tier ?? '');
+        $durationDays     = max(1, (int) ($meta->duration_days ?? 365));
+
+        if ($email === '' || $tier === '') {
+            return ['ok' => false, 'message' => 'Membership session missing email or tier.'];
+        }
+
+        $customer = $this->customers->findOrCreate(
+            $email,
+            $stripeCustomerId !== '' ? $stripeCustomerId : null,
+            $name ?: null,
+            $country,
+        );
+
+        $expiresAt = (new DateTimeImmutable())->add(new \DateInterval("P{$durationDays}D"));
+
+        $this->entitlements->grantMembershipFromOrder(
+            $customer->id,
+            $tier,
+            (int) ($session->id !== null ? crc32((string) $session->id) : 0),
+            $expiresAt,
+        );
+
+        $this->wpSync->trigger($customer->id);
+
+        return [
+            'ok'          => true,
+            'message'     => "Provisioned {$customer->email} → {$tier} for {$durationDays} days",
+            'customer_id' => $customer->id,
+            'tier'        => $tier,
+            'expires_at'  => $expiresAt->format('Y-m-d'),
+        ];
     }
 
     private function handleSubscription(object $session): array
