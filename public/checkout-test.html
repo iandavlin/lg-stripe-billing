@@ -2,84 +2,210 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>lg-stripe-billing — checkout test</title>
+<title>lg-stripe-billing — test</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <script src="https://js.stripe.com/v3/"></script>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
   body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-         max-width: 720px; margin: 2em auto; padding: 0 1em; }
-  h1 { font-size: 22px; margin-bottom: .2em; }
-  .sub { color: #777; margin-top: 0; font-size: 13px; }
-  .row { margin: 0.6em 0; display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; }
-  input { padding: 6px 8px; font-size: 14px; width: 100%; }
-  button { padding: 8px 16px; font-size: 14px; cursor: pointer; margin-top: .6em; }
-  #checkout { margin-top: 1.2em; }
-  pre { background: #1f1d1a; color: #eee; padding: .8em; overflow-x: auto; font: 12px/1.4 "SF Mono", Consolas, monospace;
-        margin-top: 1em; border-radius: 4px; min-height: 4em; }
-  .pill { display: inline-block; background: #f1ede5; color: #1f1d1a; padding: 1px 7px; border-radius: 10px;
-          font: 12px/1.4 "SF Mono", Consolas, monospace; }
+         max-width: 760px; margin: 2em auto; padding: 0 1.2em; }
+  h1 { font-size: 20px; margin-bottom: .1em; }
+  h2 { font-size: 15px; margin: 1.8em 0 .6em; padding-bottom: .3em;
+       border-bottom: 1px solid #ddd; }
+  .sub  { color: #777; margin-top: 0; font-size: 13px; }
+  .row  { margin: .5em 0; display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: center; }
+  label { font-size: 13px; color: #555; }
+  input, select { padding: 6px 8px; font-size: 14px; width: 100%; border: 1px solid #ccc; border-radius: 4px; }
+  button { padding: 8px 18px; font-size: 14px; cursor: pointer; margin-top: .7em;
+           background: #635bff; color: #fff; border: none; border-radius: 4px; }
+  button:hover { background: #4f46e0; }
+  button.sec { background: #1f1d1a; }
+  button.sec:hover { background: #444; }
+  #checkout { margin-top: 1.4em; }
+  pre { background: #1a1a1a; color: #d4d4d4; padding: .8em; overflow-x: auto;
+        font: 12px/1.4 "SF Mono", Consolas, monospace; margin-top: .8em;
+        border-radius: 4px; min-height: 3em; }
+  .pill  { display: inline-block; background: #f1ede5; color: #1f1d1a; padding: 1px 7px;
+           border-radius: 10px; font: 12px/1.4 "SF Mono", Consolas, monospace; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px;
+           font-weight: 600; margin-left: 8px; vertical-align: middle; }
+  .badge.sub  { background: #e0f2fe; color: #0369a1; }
+  .badge.gift { background: #fef3c7; color: #92400e; }
+  .discount-note { font-size: 13px; color: #059669; margin: .3em 0 0; font-weight: 500; }
+  .section { border: 1px solid #e5e5e5; border-radius: 8px; padding: 1em 1.2em; margin-top: 1.4em; }
+  .redeem-result { margin-top: .8em; font-size: 13px; }
+  .ok  { color: #059669; }
+  .err { color: #dc2626; }
 </style>
 </head>
 <body>
 
-<h1>lg-stripe-billing — checkout test</h1>
-<p class="sub">Embedded Stripe Checkout against the live dev API. Use card <span class="pill">4242 4242 4242 4242</span>, any future expiry, any 3-digit CVC, any ZIP.</p>
+<h1>lg-stripe-billing — test console</h1>
+<p class="sub">Dev tool. Card: <span class="pill">4242 4242 4242 4242</span> · any future expiry · any CVC · any ZIP.</p>
 
-<div class="row"><label for="email">Email</label><input id="email" type="email" value="browsertest@example.com"></div>
-<div class="row"><label for="priceId">Price ID</label><input id="priceId" type="text" value="price_1QlXoLHg6gcIV22bj141Eoke"></div>
-<div class="row"><label for="country">Country</label><input id="country" type="text" placeholder="optional, e.g. IN" value=""></div>
+<!-- ── Checkout ─────────────────────────────────────────────── -->
+<h2>Checkout <span id="modeBadge" class="badge sub">subscription</span></h2>
 
-<button id="start">Start Checkout</button>
+<div class="row">
+  <label for="email">Email</label>
+  <input id="email" type="email" value="browsertest@example.com">
+</div>
+<div class="row">
+  <label for="priceId">Price ID</label>
+  <select id="priceId">
+    <option value="price_1QlXoLHg6gcIV22bj141Eoke">Looth LITE — $72/yr recurring</option>
+    <option value="price_1QlXoLHg6gcIV22baaf6atxk">Looth LITE — $72 one-time</option>
+    <option value="price_1QojnFHg6gcIV22b30t9WSKD">Looth LITE — $74.40/yr recurring</option>
+  </select>
+</div>
+<div class="row">
+  <label for="quantity">Quantity</label>
+  <input id="quantity" type="number" min="1" value="1">
+</div>
+<div class="row">
+  <label for="country">Country</label>
+  <input id="country" type="text" placeholder="optional, e.g. IN">
+</div>
+
+<p id="discountNote" class="discount-note" style="display:none"></p>
+
+<button id="startCheckout">Start Checkout</button>
 
 <div id="checkout"></div>
-<pre id="log">log:
+<pre id="checkoutLog">log:
 </pre>
 
+<!-- ── Redeem ──────────────────────────────────────────────── -->
+<div class="section">
+  <h2 style="margin-top:0;border:none;padding:0 0 .4em">Redeem a Gift Code</h2>
+  <div class="row">
+    <label for="redeemCode">Code</label>
+    <input id="redeemCode" type="text" placeholder="ABCDEFGHIJKL" style="text-transform:uppercase;letter-spacing:.1em">
+  </div>
+  <div class="row">
+    <label for="redeemEmail">Email</label>
+    <input id="redeemEmail" type="email" placeholder="recipient@example.com">
+  </div>
+  <div class="row">
+    <label for="redeemName">Name</label>
+    <input id="redeemName" type="text" placeholder="optional">
+  </div>
+  <button class="sec" id="startRedeem">Redeem</button>
+  <div id="redeemResult" class="redeem-result"></div>
+</div>
+
 <script>
-const log = (m) => {
-  const el = document.getElementById('log');
+// ── Discount tiers (must match BULK_DISCOUNT_TIERS env) ──────
+const TIERS = [
+  { min: 50, pct: 30 },
+  { min: 20, pct: 20 },
+  { min: 10, pct: 10 },
+];
+
+function discountPct(qty) {
+  for (const t of TIERS) {
+    if (qty >= t.min) return t.pct;
+  }
+  return 0;
+}
+
+// ── Mode badge + discount note ───────────────────────────────
+const qtyEl   = document.getElementById('quantity');
+const badge   = document.getElementById('modeBadge');
+const note    = document.getElementById('discountNote');
+
+function updateMode() {
+  const qty = parseInt(qtyEl.value, 10) || 1;
+  const isGift = qty >= 2;
+  badge.textContent = isGift ? 'gift' : 'subscription';
+  badge.className   = 'badge ' + (isGift ? 'gift' : 'sub');
+
+  const pct = discountPct(qty);
+  if (isGift && pct > 0) {
+    note.textContent = `${pct}% bulk discount applied (${qty} seats)`;
+    note.style.display = '';
+  } else if (isGift) {
+    note.textContent = `Gift mode — ${qty} codes generated on completion`;
+    note.style.display = '';
+  } else {
+    note.style.display = 'none';
+  }
+}
+qtyEl.addEventListener('input', updateMode);
+updateMode();
+
+// ── Checkout ─────────────────────────────────────────────────
+const checkoutLog = (m) => {
+  const el = document.getElementById('checkoutLog');
   el.textContent += m + '\n';
   el.scrollTop = el.scrollHeight;
 };
 
-document.getElementById('start').addEventListener('click', async () => {
+document.getElementById('startCheckout').addEventListener('click', async () => {
   try {
-    const email   = document.getElementById('email').value.trim();
-    const priceId = document.getElementById('priceId').value.trim();
-    const country = document.getElementById('country').value.trim();
+    const email    = document.getElementById('email').value.trim();
+    const priceId  = document.getElementById('priceId').value;
+    const quantity = parseInt(qtyEl.value, 10) || 1;
+    const country  = document.getElementById('country').value.trim();
 
-    const body = { price_id: priceId, email };
+    const body = { price_id: priceId, email, quantity };
     if (country) body.country = country;
 
-    log('→ POST /billing/v1/checkout ' + JSON.stringify(body));
-    const sessRes = await fetch('/billing/v1/checkout', {
+    checkoutLog('→ POST /billing/v1/checkout ' + JSON.stringify(body));
+    const sessRes  = await fetch('/billing/v1/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const sessData = await sessRes.json();
     if (!sessData.clientSecret) {
-      log('✗ checkout error: ' + JSON.stringify(sessData));
+      checkoutLog('✗ ' + JSON.stringify(sessData));
       return;
     }
-    log('✓ clientSecret received');
+    checkoutLog('✓ clientSecret received');
 
-    log('→ GET /billing/v1/config');
     const cfg = await (await fetch('/billing/v1/config')).json();
-    if (!cfg.publishableKey) {
-      log('✗ no publishableKey');
-      return;
-    }
-    log('✓ publishableKey received');
+    if (!cfg.publishableKey) { checkoutLog('✗ no publishableKey'); return; }
 
-    const stripe = Stripe(cfg.publishableKey);
+    const stripe   = Stripe(cfg.publishableKey);
     const checkout = await stripe.initEmbeddedCheckout({ clientSecret: sessData.clientSecret });
     checkout.mount('#checkout');
-    log('✓ checkout mounted — complete the form to test /v1/return');
+    checkoutLog('✓ checkout mounted — complete the form to test /v1/return');
   } catch (err) {
-    log('✗ ' + err.message);
+    checkoutLog('✗ ' + err.message);
+  }
+});
+
+// ── Redeem ───────────────────────────────────────────────────
+document.getElementById('startRedeem').addEventListener('click', async () => {
+  const resultEl = document.getElementById('redeemResult');
+  resultEl.textContent = 'Redeeming…';
+  resultEl.className   = 'redeem-result';
+
+  const body = {
+    code:  document.getElementById('redeemCode').value.trim().toUpperCase(),
+    email: document.getElementById('redeemEmail').value.trim(),
+    name:  document.getElementById('redeemName').value.trim(),
+  };
+
+  try {
+    const res  = await fetch('/billing/v1/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      resultEl.className   = 'redeem-result ok';
+      resultEl.textContent = `✓ ${data.message} (expires ${data.expires_at})`;
+    } else {
+      resultEl.className   = 'redeem-result err';
+      resultEl.textContent = `✗ ${data.error}`;
+    }
+  } catch (err) {
+    resultEl.className   = 'redeem-result err';
+    resultEl.textContent = '✗ ' + err.message;
   }
 });
 </script>
