@@ -24,6 +24,9 @@ interface SettingsStore
     /** URL of the WP plugin's sync-customer REST endpoint. Empty string = disabled. */
     public function getSyncEndpointUrl(): string;
 
+    /** URL of the WP plugin's send-gift-codes REST endpoint. Empty string = disabled. */
+    public function getGiftMailUrl(): string;
+
     /** Shared secret for the X-LGMS-Token header. Empty string = disabled. */
     public function getSyncSharedSecret(): string;
 
@@ -38,6 +41,4 @@ interface SettingsStore
      */
     public function getBulkDiscountTiers(): array;
 
-    /** From address for transactional email (e.g. noreply@loothgroup.com). */
-    public function getMailFrom(): string;
 }

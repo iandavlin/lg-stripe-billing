@@ -72,6 +72,6 @@ return [
         new PdoGiftCodeRepository($c->get(PDO::class)),
 
     /* Core services (CheckoutService, CustomerManager, EntitlementManager,
-       ReturnHandler, WpSync, BulkPricer, GiftCodeMailer) and HTTP controllers
+       ReturnHandler, WpSync, WpGiftMailer, BulkPricer) and HTTP controllers
        are autowired by PHP-DI from their constructor signatures. */
 ];

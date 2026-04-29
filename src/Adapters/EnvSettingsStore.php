@@ -35,6 +35,11 @@ final class EnvSettingsStore implements SettingsStore
         return self::env('LGMS_SYNC_URL');
     }
 
+    public function getGiftMailUrl(): string
+    {
+        return self::env('LGMS_GIFT_MAIL_URL');
+    }
+
     public function getSyncSharedSecret(): string
     {
         return self::env('LGMS_SHARED_SECRET');
@@ -48,11 +53,6 @@ final class EnvSettingsStore implements SettingsStore
     public function getBulkDiscountTiers(): array
     {
         return BulkPricer::fromEnvString(self::env('BULK_DISCOUNT_TIERS'))->tiers();
-    }
-
-    public function getMailFrom(): string
-    {
-        return self::env('MAIL_FROM');
     }
 
     private static function env(string $key): string

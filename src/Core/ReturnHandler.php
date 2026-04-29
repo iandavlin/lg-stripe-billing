@@ -26,7 +26,7 @@ class ReturnHandler
         private readonly SubscriptionRepository $subscriptions,
         private readonly EntitlementManager     $entitlements,
         private readonly GiftCodeRepository     $giftCodes,
-        private readonly GiftCodeMailer         $mailer,
+        private readonly WpGiftMailer           $mailer,
         private readonly WpSync                 $wpSync,
     ) {}
 

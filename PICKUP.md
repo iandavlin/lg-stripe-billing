@@ -1,28 +1,30 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-04-28 (session 2)*
+*Last worked: 2026-04-29 (session 5)*
 
 ## State at end of session
 
-Everything works on dev. Webhook sync is live and tested end-to-end. Product/price changes in the Stripe Dashboard flow into the DB automatically.
+Everything works on dev. Full gift checkout tested end-to-end: 20-seat purchase → 20 gift codes in DB. Subscription webhooks live and tested (cancel, upgrade/downgrade, INSERT path). Test console at `checkout-test.html` covers both flows.
 
 ```
-Browser ─► dev.loothgroup.com/billing/v1/checkout ─► Stripe Checkout ─► /v1/return
-                                                                          │
-                                                                          ▼
-                                              Slim writes customer / subscription / entitlement
-                                              Slim POSTs /sync-customer to WP plugin
-                                                                          │
-                                                                          ▼
-                                              WP plugin: provision user, write
-                                              lg_role_sources(stripe, tier),
-                                              run arbiter, write wp_capabilities
+Browser ─► /billing/checkout-test.html
+              │
+              ├─ quantity=1 ─► POST /v1/checkout (subscription mode)
+              │                  └─► Stripe Checkout ─► /v1/return
+              │                        └─► customer + subscription + entitlement + WP sync
+              │
+              └─ quantity≥2 ─► POST /v1/checkout (gift/payment mode)
+                                 └─► Stripe Checkout ─► /v1/return
+                                       └─► customer + N gift_codes + POST /wp-json/.../send-gift-codes → FluentCRM
 
-Stripe Dashboard ─► product.*/price.* events ─► POST /billing/v1/webhook
-                                                          │
-                                                          ▼
-                                              DB upserts products + prices
-                                              GET /v1/products always reflects live data
+POST /v1/redeem {code, email, name?}
+  └─► validate code → grant entitlement (expires_at = now + duration_days) → WP sync
+
+Stripe Dashboard ─► subscription.updated/deleted ─► POST /v1/webhook
+                                                       └─► upsert subscription + grant/revoke entitlement + WP sync
+
+Stripe Dashboard ─► product.*/price.* ─► POST /v1/webhook
+                                           └─► upsert products + prices (name + active only; ref/kind preserved)
 ```
 
 ## Two-repo system
@@ -39,33 +41,21 @@ Stripe Dashboard ─► product.*/price.* events ─► POST /billing/v1/webhook
 | GET | `/health` | Liveness probe |
 | GET | `/v1/config` | Returns publishable key |
 | GET | `/v1/products` | Active membership products + prices (for shortcode tier picker) |
-| POST | `/v1/checkout` | Create Stripe Checkout session |
+| POST | `/v1/checkout` | Create Stripe Checkout session (quantity=1→subscription, ≥2→gift) |
 | POST | `/v1/portal` | Create Stripe customer portal session |
 | GET | `/v1/return` | Stripe redirect handler after checkout |
-| POST | `/v1/webhook` | Stripe webhook receiver (product/price sync + subscription events) |
+| POST | `/v1/redeem` | Redeem a gift code → grant entitlement + WP sync |
+| POST | `/v1/webhook` | Stripe webhook receiver |
 
 ## Webhook endpoint (dev)
 
-- Registered in Stripe: `we_1TR8nSHg6gcIV22bUqxeVvff`
+- Registered: `we_1TR8nSHg6gcIV22bUqxeVvff`
 - URL: `https://dev.loothgroup.com/billing/v1/webhook`
-- Events: `product.created`, `product.updated`, `price.created`, `price.updated`
+- Events: `product.created`, `product.updated`, `price.created`, `price.updated`, `customer.subscription.updated`, `customer.subscription.deleted`
 - Secret: in `.env` as `STRIPE_WEBHOOK_SECRET`
-- **TODO:** Add `customer.subscription.updated`, `customer.subscription.deleted`, `charge.refunded` to the registered events
+- **TODO:** Add `charge.refunded` to registered events
 
-## Products/prices convention
-
-Products and prices sync automatically from Stripe via webhooks. To add a new tier:
-1. Create the product in Stripe Dashboard
-2. Run one SQL to set `ref` and `kind` (metadata approach was dropped — too fragile):
-   ```sql
-   INSERT INTO products (stripe_product_id, kind, ref, name, active)
-   VALUES ('prod_xxx', 'membership', 'looth3', 'Looth PRO', 1);
-   ```
-3. Trigger any `product.updated` event (edit description, etc.) — webhook syncs `name` and `active` automatically going forward
-
-The `ProductSyncHandler` has been simplified — `PdoProductRepository::upsertProduct` ON DUPLICATE KEY UPDATE now only touches `name` and `active`. `ref` and `kind` are never overwritten by webhook events. ✓ Done.
-
-## Decisions locked in (2026-04-28)
+## Decisions locked in
 
 ### Subscription status policy
 | Stripe status | Access |
@@ -74,108 +64,112 @@ The `ProductSyncHandler` has been simplified — `PdoProductRepository::upsertPr
 | `trialing` | Full access to trialing tier |
 | `past_due` | Keep access through Stripe retry window |
 | `canceled` | Revoke immediately |
-| `refunded` | Revoke immediately, all cases (subscription and one-time) |
+| `refunded` | Revoke immediately, all cases |
+
+### Gift / bulk membership model
+- `POST /v1/checkout` with `quantity >= 2` → one-time Stripe payment session
+- Price computed server-side: base per-seat × qty × (1 - discount%) using `BULK_DISCOUNT_TIERS` env
+- Stripe line item uses **`product_data: {name: "..."}`** — NOT linked to Stripe product (gifts are a distinct SKU from subscriptions) — **see TODO #1 below**
+- N gift codes generated in `gift_codes` table on return; emailed to purchaser via `mail()`
+- Each code redeemed independently via `POST /v1/redeem`; grants entitlement with `expires_at = now + duration_days`
+- `duration_days` derived from price: `grants_duration_days` field if set, else 365 for yearly, 30 for monthly
 
 ### Upgrade / downgrade
-- Near-instant via `customer.subscription.updated` webhook handler ✓ Built and deployed.
-- Downgrade takes effect at period end (member keeps higher tier for remainder of paid period)
+- Near-instant via `customer.subscription.updated` webhook
+- Downgrade takes effect at period end
 
-### One-time yearly memberships
-- `grants_duration_days` field exists in schema
-- Expiry enforcement **not yet built** — cron needs an expiry sweep:
-  ```sql
-  UPDATE entitlements SET active = 0
-  WHERE expires_at IS NOT NULL AND expires_at < NOW() AND active = 1
-  ```
-  Then fire WP sync for each affected customer.
-- **Must ship before one-time yearly goes on sale**
+### Expiry sweep
+- Gift code entitlements have `expires_at` — must be swept by cron
+- **Must ship before gifts go on sale** (see TODO #3)
 
-### Gift memberships
-- Gift code system (not custom checkout field — too fragile on typos)
-- Purchaser checks out, return handler generates a unique code, emails it to purchaser
-- Recipient redeems at `[lg_redeem_gift]` shortcode
-- New table needed: `gift_codes`
-- New Slim endpoint: `POST /v1/redeem`
+## Products/prices convention
 
-### Bulk memberships (shops, schools, factories)
-- Handled as bulk-priced gift packs — no org seat management needed
-- Shop buys a 10-pack product, gets 10 codes to distribute
-- Each employee/student redeems independently, gets a standalone membership
-- Return handler detects bulk product, generates N codes, emails all to purchaser
-- Employees keep access even if shop doesn't renew (by design)
-
-## Next steps, in priority order
-
-### ✓ 1. `customer.subscription.updated` webhook handler — DONE
-
-`SubscriptionWebhookHandler::handle()` added. Handles both `.updated` and `.deleted`.
-Stripe webhook `we_1TR8nSHg6gcIV22bUqxeVvff` now registered for all 6 events.
-
-### ✓ 2. Simplify `ProductSyncHandler` — DONE
-
-ON DUPLICATE KEY UPDATE now only touches `name` and `active`. `ref`/`kind` preserved.
-
-### ✓ 3. Bulk gift checkout + gift code redemption — DONE
-
-- `BULK_DISCOUNT_TIERS=10:10,20:20,50:30` in `.env` drives per-seat discounts
-- `POST /v1/checkout` with `quantity >= 2` → payment-mode Stripe session; codes generated on return
-- `POST /v1/redeem {code, email, name?}` → grants entitlement with `expires_at = now + duration_days`, fires WP sync
-- `gift_codes` table live on dev (migration 001 applied)
-- `GiftCodeMailer` sends codes via `mail()` — swap for SES/SMTP when needed
-- `WpSync` extracted as shared service (was duplicated in ReturnHandler + SubscriptionWebhookHandler)
-
-### 4. Cutover to production (NEXT)
-
-New migration: `gift_codes` table:
 ```sql
-CREATE TABLE gift_codes (
-    id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    code             CHAR(12)        NOT NULL,
-    tier             VARCHAR(64)     NOT NULL,
-    duration_days    INT UNSIGNED    NOT NULL,
-    purchased_by     BIGINT UNSIGNED NOT NULL,  -- customers.id
-    redeemed_by      BIGINT UNSIGNED NULL,
-    stripe_session_id VARCHAR(128)   NULL,
-    expires_at       DATETIME        NULL,
-    redeemed_at      DATETIME        NULL,
-    created_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_code (code),
-    CONSTRAINT fk_gc_purchased FOREIGN KEY (purchased_by) REFERENCES customers(id),
-    CONSTRAINT fk_gc_redeemed  FOREIGN KEY (redeemed_by)  REFERENCES customers(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Add a new tier after creating product in Stripe Dashboard:
+INSERT INTO products (stripe_product_id, kind, ref, name, active)
+VALUES ('prod_xxx', 'membership', 'looth3', 'Looth PRO', 1);
+-- Webhook keeps name + active in sync going forward; ref/kind never overwritten
 ```
 
-New endpoint: `POST /v1/redeem` — validates code, grants entitlement, fires WP sync.
+## Outstanding issues / TODOs, in priority order
 
-### 4. Cutover to production
+### 1. ~~Fix gift checkout Stripe line item~~ — DONE
 
-Currently everything is dev. Live (loothgroup.com) still on legacy plugin. Migration steps:
+~~Currently using `product: stripe_product_id` in `price_data` (links to Stripe product).~~ Now uses `product_data: {name: "Looth LITE — 20-Seat Gift Pack"}`. `findPriceData()` returns `product_name` instead of `stripe_product_id`. Gift purchases no longer appear as subscription product sales in Stripe reporting.
 
-1. Set up `/var/www/billing/lg-stripe-billing/` — **owned by `ubuntu`** per the flag below
-2. Clone Slim, run `composer install`
-3. Create production `lg_membership_prod` MySQL DB + user
-4. Apply schema + seed (region tags only — no fake product rows)
-5. Seed products/prices for prod (trigger via Stripe events after setting live keys)
-6. nginx config: add `/billing/` location to `loothgroup.com.conf`
-7. New php-fpm pool `lg-billing-live` running as `ubuntu`
-8. `.env` with **live** Stripe keys + `LGMS_SHARED_SECRET` + `STRIPE_WEBHOOK_SECRET`
-9. Deploy `lg-patreon-stripe-poller` to `/var/www/html/wp-content/plugins/`
-10. Register prod webhook in Stripe (same events as dev)
-11. Configure plugin's settings page with prod DB creds + Stripe key + shared secret
-12. **Disable the legacy `lg-stripe-membership` plugin on prod**
-13. Verify a manual test checkout, watch the cascade
+### 2. ~~Email delivery for gift codes~~ — DONE
 
-### 5. Optimization (nice-to-have)
+`GiftCodeMailer` (PHP `mail()`) replaced by `WpGiftMailer`. On `/v1/return`, Slim POSTs `{to_email, to_name, codes}` to the WP plugin's new `/wp-json/lg-member-sync/v1/send-gift-codes` endpoint (same shared-secret auth as `/sync-customer`). The WP plugin creates/updates a FluentCRM contact tagged `gift-purchaser` and sends the email via `wp_mail()` — routed through whatever FluentCRM/FluentSMTP has configured.
 
-`Sync::all()` currently iterates every customer on every cron tick. Track "dirty" customers in pass 1 of `Tick::run` and only sync those in pass 2.
+**Requires on dev/prod:** add `LGMS_GIFT_MAIL_URL=https://{site}/wp-json/lg-member-sync/v1/send-gift-codes` to `.env`. Remove `MAIL_FROM` (no longer read).
 
-### 6. Refund / dispute handlers
+### 3. Expiry sweep cron (WP plugin)
 
-`charge.refunded` is wired (needs confirming it revokes immediately per the decision above). `charge.dispute.created` is unhandled — admin manually deals with disputes for now.
+Gift code entitlements expire (`expires_at` set on grant). The WP plugin poller needs a sweep:
+```sql
+-- Find expired gift entitlements
+SELECT DISTINCT customer_id FROM entitlements
+WHERE source_type = 'gift_code'
+  AND expires_at IS NOT NULL
+  AND expires_at < NOW()
+  AND revoked_at IS NULL;
+```
+Then `revokeBySource('gift_code', id)` and fire WP sync for each customer. Same sweep also covers one-time yearly memberships when those launch.
 
-## Production deploy ownership (flag)
+### 4. `[lg_redeem_gift]` shortcode (WP plugin)
 
-Dev install lives under `/home/ccdev/lg-stripe-billing` (ccdev owned). **Production install must live under a path owned by `ubuntu`** — matches the rest of the prod ops surface. Likely target: `/var/www/billing/lg-stripe-billing` or `/home/ubuntu/lg-stripe-billing`. Pool config + systemd units will need the matching user at cutover.
+Member-facing gift redemption form. Renders code + email inputs, POSTs to `/billing/v1/redeem`, shows confirmation. Lives in `lg-patreon-stripe-poller`.
+
+### 5. `charge.refunded` confirmation
+
+Register event in Stripe webhook + confirm the handler revokes immediately. Currently unverified.
+
+### 6. Production cutover
+
+No legacy plugin to migrate — clean greenfield deploy to prod.
+
+1. Set up `/var/www/billing/lg-stripe-billing/` — **owned by `ubuntu`**
+2. Clone Slim, run `composer install --no-dev`
+3. Create `lg_membership_prod` MySQL DB + user
+4. Apply `db/schema.sql` + `db/migrations/001_gift_codes.sql` + seed (region tags only)
+5. nginx: add `/billing/` location to `loothgroup.com.conf`
+6. New php-fpm pool `lg-billing-live` running as `ubuntu`
+7. `.env` with **live** Stripe keys + `LGMS_SHARED_SECRET` + `STRIPE_WEBHOOK_SECRET` + `BULK_DISCOUNT_TIERS` + `MAIL_FROM`
+8. Deploy `lg-patreon-stripe-poller` to `/var/www/html/wp-content/plugins/`
+9. Register prod webhook in Stripe (all 6 events + `charge.refunded`)
+10. Configure plugin settings page
+11. Verify a manual test checkout end-to-end
+
+### 7. Optimization (nice-to-have)
+
+`Sync::all()` iterates every customer on every cron tick. Track dirty customers and only sync those.
+
+## DB state on dev (test data)
+
+| customer_id | email | wp_user | notes |
+|---|---|---|---|
+| 3 | browsertest@ | 1817 fart.mcfartingham | purchased 20-seat gift pack (20 codes in gift_codes) |
+| 4 | fartbutt@ | 1818 fartbutt | active sub (sub_1TRUR6…); prior canceled sub in history |
+| 5 | stinkbutt@ | 1819 stinkbutt | canceled sub; redeemed TESTCODE0001 (gift entitlement expires 2027-04-29) |
+
+## .env vars (dev)
+
+```
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+APP_BASE_URL=https://dev.loothgroup.com/billing
+APP_BASE_PATH=billing
+APP_HOME_URL=https://dev.loothgroup.com
+LGMS_SYNC_URL=https://dev.loothgroup.com/wp-json/lg-member-sync/v1/sync-customer
+LGMS_GIFT_MAIL_URL=https://dev.loothgroup.com/wp-json/lg-member-sync/v1/send-gift-codes
+LGMS_SHARED_SECRET=...
+BULK_DISCOUNT_TIERS=10:10,20:20,50:30
+DB_HOST=127.0.0.1
+DB_NAME=lg_membership
+DB_USER=lg_membership
+DB_PASSWORD=...
+```
 
 ## Server access
 
@@ -183,42 +177,35 @@ Dev install lives under `/home/ccdev/lg-stripe-billing` (ccdev owned). **Product
 ssh -i "C:/Users/ianda/git-repos/ssh keys/ccdev_key" ccdev@54.157.13.77
 ```
 
-For ubuntu-owned operations (sudo, plugin folder moves), log in as ubuntu separately.
-
 ## Quick test commands
 
 ```bash
 # Health
 curl -s https://dev.loothgroup.com/billing/health
 
-# Products (tier picker data)
-curl -s https://dev.loothgroup.com/billing/v1/products
-
-# Browser end-to-end
+# Browser test console (subscription + gift + redeem)
 open https://dev.loothgroup.com/billing/checkout-test.html
+
+# Redeem a code via curl
+curl -s -X POST https://dev.loothgroup.com/billing/v1/redeem \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"ABCDEFGHIJKL","email":"test@example.com"}'
+
+# Check gift codes
+source /home/ccdev/lg-stripe-billing/.env
+mysql -h $DB_HOST -u $DB_USER -p$DB_PASSWORD $DB_NAME \
+  -e 'SELECT id, code, tier, duration_days, purchased_by, redeemed_by, redeemed_at FROM gift_codes ORDER BY id DESC LIMIT 10;'
 
 # Trigger WP plugin tick manually
 cd /var/www/dev && wp cron event run lgms_poll_tick
 
-# Sync one customer through the plugin REST endpoint
-SECRET=$(sudo grep '^LGMS_SHARED_SECRET=' /home/ccdev/lg-stripe-billing/.env | cut -d= -f2)
+# Sync one customer
+SECRET=$(grep '^LGMS_SHARED_SECRET=' /home/ccdev/lg-stripe-billing/.env | cut -d= -f2)
 curl -s -X POST -H "Content-Type: application/json" -H "X-LGMS-Token: $SECRET" \
-  -d '{"customer_id":3}' \
+  -d '{"customer_id":4}' \
   https://dev.loothgroup.com/wp-json/lg-member-sync/v1/sync-customer
-
-# Inspect lg_membership state
-mysql -h 127.0.0.1 -u lg_membership -p'<password>' lg_membership -e "SHOW TABLES;"
 ```
-
-## DB state on dev (test data)
-
-| customer_id | email | wp_user | tier | notes |
-|---|---|---|---|---|
-| 1, 2 | smoketest+1, +public | — | — | curl-only tests, no Stripe customer |
-| 3 | browsertest@ | 1817 fart.mcfartingham | looth2 | created via legacy plugin |
-| 4 | fartbutt@ | 1818 fartbutt | looth2 | full new pipeline |
-| 5 | stinkbutt@ | 1819 stinkbutt | looth1 (defaulted) | used for cancel cascade test; ready for resubscribe test |
 
 ## System map
 
-Open `docs/system-map.html` in a browser for the full architecture diagram, table-by-table breakdown, flow walkthroughs, and class inventory.
+Open `docs/system-map.html` in a browser for the full architecture diagram.
