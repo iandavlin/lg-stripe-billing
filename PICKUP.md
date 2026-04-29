@@ -115,7 +115,16 @@ Stripe webhook `we_1TR8nSHg6gcIV22bUqxeVvff` now registered for all 6 events.
 
 ON DUPLICATE KEY UPDATE now only touches `name` and `active`. `ref`/`kind` preserved.
 
-### 3. Gift code system (NEXT)
+### ✓ 3. Bulk gift checkout + gift code redemption — DONE
+
+- `BULK_DISCOUNT_TIERS=10:10,20:20,50:30` in `.env` drives per-seat discounts
+- `POST /v1/checkout` with `quantity >= 2` → payment-mode Stripe session; codes generated on return
+- `POST /v1/redeem {code, email, name?}` → grants entitlement with `expires_at = now + duration_days`, fires WP sync
+- `gift_codes` table live on dev (migration 001 applied)
+- `GiftCodeMailer` sends codes via `mail()` — swap for SES/SMTP when needed
+- `WpSync` extracted as shared service (was duplicated in ReturnHandler + SubscriptionWebhookHandler)
+
+### 4. Cutover to production (NEXT)
 
 New migration: `gift_codes` table:
 ```sql
