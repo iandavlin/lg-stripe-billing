@@ -1,0 +1,66 @@
+{
+  "_notes": {
+    "purpose": "Authoritative catalog of Stripe products and prices for the membership system. Use `bin/stripe-import-catalog.php db/catalog.json` to apply to whichever Stripe mode the configured STRIPE_SECRET_KEY targets (test or live).",
+    "bulk_gift_discount_tiers": "Bulk gift discounts are env-driven, not in Stripe. Set BULK_DISCOUNT_TIERS in .env: '10:10,20:20,50:30' (qty:pct).",
+    "patreon_migration_coupon": "Create a Stripe Coupon `patreon_migration` (5% off, ~90 day expiry) and a Promotion Code `PATREON5` referencing it. Apply via session `discounts` (auto) or `allow_promotion_codes: true` (manual).",
+    "tier_naming": "ref values 'looth2'/'looth3' are internal tier slugs. The product name is what customers see."
+  },
+  "products": [
+    {
+      "ref": "looth2",
+      "name": "Looth LITE",
+      "kind": "membership",
+      "prices": [
+        {
+          "key": "lite_monthly_sub",
+          "type": "recurring",
+          "interval": "month",
+          "unit_amount_cents": 500,
+          "currency": "usd"
+        },
+        {
+          "key": "lite_yearly_sub",
+          "type": "recurring",
+          "interval": "year",
+          "unit_amount_cents": 6000,
+          "currency": "usd"
+        },
+        {
+          "key": "lite_yearly_once",
+          "type": "one_time",
+          "unit_amount_cents": 6600,
+          "currency": "usd",
+          "grants_duration_days": 365
+        }
+      ]
+    },
+    {
+      "ref": "looth3",
+      "name": "Looth PRO",
+      "kind": "membership",
+      "prices": [
+        {
+          "key": "pro_monthly_sub",
+          "type": "recurring",
+          "interval": "month",
+          "unit_amount_cents": 1100,
+          "currency": "usd"
+        },
+        {
+          "key": "pro_yearly_sub",
+          "type": "recurring",
+          "interval": "year",
+          "unit_amount_cents": 13200,
+          "currency": "usd"
+        },
+        {
+          "key": "pro_yearly_once",
+          "type": "one_time",
+          "unit_amount_cents": 14500,
+          "currency": "usd",
+          "grants_duration_days": 365
+        }
+      ]
+    }
+  ]
+}

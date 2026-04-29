@@ -17,9 +17,12 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 
 ## Stripe
 
-- [ ] Register prod webhook in Stripe Dashboard (all 6 events + `charge.refunded`)
+- [ ] Switch to live Stripe keys (`sk_live_…`, `pk_live_…`) in `.env`
+- [ ] Run `php bin/stripe-import-catalog.php db/catalog.json` — creates products + prices in Live (idempotent)
+- [ ] Apply printed SQL stamps to the prod `lg_membership` DB (sets `ref`/`kind` on products and `grants_duration_days` on one-time prices)
+- [ ] Register prod webhook in Stripe Dashboard (events: `product.created`, `product.updated`, `price.created`, `price.updated`, `customer.subscription.updated`, `customer.subscription.deleted`, `charge.refunded`)
 - [ ] Set `STRIPE_WEBHOOK_SECRET` in `.env` to prod webhook secret
-- [ ] Switch to live Stripe keys (`sk_live_…`, `pk_live_…`)
+- [ ] Create Stripe Coupon `patreon_migration` (5% off, expires after migration window) and Promotion Code `PATREON5`
 
 ## Environment (.env)
 
