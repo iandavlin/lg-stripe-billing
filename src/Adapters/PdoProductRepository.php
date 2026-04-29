@@ -67,11 +67,30 @@ final class PdoProductRepository implements ProductRepository
         return ($val !== false && $val !== null) ? (int) $val : null;
     }
 
+    public function pricePerYearCentsForTier(string $tier): ?int
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT pr.unit_amount_cents
+             FROM prices pr
+             JOIN products p ON p.id = pr.product_id
+             WHERE p.kind = 'membership'
+               AND p.active = 1
+               AND p.ref = ?
+               AND pr.active = 1
+               AND pr.`interval` = 'year'
+             ORDER BY (pr.region_tag IS NULL) DESC, pr.priority ASC
+             LIMIT 1"
+        );
+        $stmt->execute([$tier]);
+        $val = $stmt->fetchColumn();
+        return $val !== false && $val !== null ? (int) $val : null;
+    }
+
     public function findPriceData(string $stripePriceId): ?array
     {
         $stmt = $this->pdo->prepare(
             'SELECT pr.unit_amount_cents, pr.currency, pr.`interval`, pr.grants_duration_days,
-                    p.stripe_product_id
+                    p.name AS product_name
              FROM prices pr
              JOIN products p ON p.id = pr.product_id
              WHERE pr.stripe_price_id = ? LIMIT 1'
@@ -86,7 +105,7 @@ final class PdoProductRepository implements ProductRepository
             'currency'             => (string) $row['currency'],
             'interval'             => $row['interval'] !== null ? (string) $row['interval'] : null,
             'grants_duration_days' => $row['grants_duration_days'] !== null ? (int) $row['grants_duration_days'] : null,
-            'stripe_product_id'    => (string) $row['stripe_product_id'],
+            'product_name'         => (string) $row['product_name'],
         ];
     }
 

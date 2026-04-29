@@ -26,10 +26,18 @@ interface ProductRepository
     public function grantsDurationDays(string $stripePriceId): ?int;
 
     /**
+     * Annual base price in cents for a membership tier (e.g. 'looth2' → 7200).
+     * Used for cross-tier proration. Prefers the default-region (NULL region_tag)
+     * yearly price; falls back to the lowest-priority active yearly price for the tier.
+     * Null if the tier has no membership product or no yearly price.
+     */
+    public function pricePerYearCentsForTier(string $tier): ?int;
+
+    /**
      * Raw price data needed for gift/bulk checkout: amount, currency, interval,
      * and optional duration. Null if the price isn't in our DB.
      *
-     * @return array{unit_amount_cents:int,currency:string,interval:string|null,grants_duration_days:int|null,stripe_product_id:string}|null
+     * @return array{unit_amount_cents:int,currency:string,interval:string|null,grants_duration_days:int|null,product_name:string}|null
      */
     public function findPriceData(string $stripePriceId): ?array;
 

@@ -49,6 +49,22 @@ final class PdoEntitlementRepository implements EntitlementRepository
         return array_map([self::class, 'toDto'], $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
+    public function activeGiftsForCustomer(int $customerId, ?DateTimeImmutable $now = null): array
+    {
+        $now ??= new DateTimeImmutable();
+        $nowStr = $now->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM entitlements
+             WHERE customer_id = ?
+               AND source_type = 'gift_code'
+               AND revoked_at IS NULL
+               AND (expires_at IS NULL OR expires_at > ?)
+             ORDER BY id DESC"
+        );
+        $stmt->execute([$customerId, $nowStr]);
+        return array_map([self::class, 'toDto'], $stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
     public function grant(
         int                $customerId,
         string             $kind,
@@ -56,10 +72,14 @@ final class PdoEntitlementRepository implements EntitlementRepository
         string             $sourceType,
         ?int               $sourceId,
         ?DateTimeImmutable $expiresAt,
+        ?DateTimeImmutable $startsAt = null,
     ): Entitlement {
         // Idempotency: if an active entitlement already exists for the same
         // source + same ref + same kind, return it instead of writing churn.
-        if ($sourceId !== null) {
+        // Skip the idempotency check when an explicit startsAt is given —
+        // gift redemption strategies legitimately produce multiple rows for
+        // the same source_type with different windows.
+        if ($sourceId !== null && $startsAt === null) {
             $stmt = $this->pdo->prepare(
                 'SELECT * FROM entitlements
                  WHERE customer_id = ? AND kind = ? AND ref = ?
@@ -75,20 +95,38 @@ final class PdoEntitlementRepository implements EntitlementRepository
         }
 
         $uuid = Uuid::v4();
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO entitlements
-                (uuid, customer_id, kind, ref, source_type, source_id, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
-        );
-        $stmt->execute([
-            $uuid,
-            $customerId,
-            $kind,
-            $ref,
-            $sourceType,
-            $sourceId,
-            $expiresAt?->format('Y-m-d H:i:s'),
-        ]);
+        if ($startsAt !== null) {
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO entitlements
+                    (uuid, customer_id, kind, ref, source_type, source_id, starts_at, expires_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                $uuid,
+                $customerId,
+                $kind,
+                $ref,
+                $sourceType,
+                $sourceId,
+                $startsAt->format('Y-m-d H:i:s'),
+                $expiresAt?->format('Y-m-d H:i:s'),
+            ]);
+        } else {
+            $stmt = $this->pdo->prepare(
+                'INSERT INTO entitlements
+                    (uuid, customer_id, kind, ref, source_type, source_id, expires_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+            );
+            $stmt->execute([
+                $uuid,
+                $customerId,
+                $kind,
+                $ref,
+                $sourceType,
+                $sourceId,
+                $expiresAt?->format('Y-m-d H:i:s'),
+            ]);
+        }
         $id = (int) $this->pdo->lastInsertId();
         return $this->findById($id) ?? throw new RuntimeException('Failed to grant entitlement');
     }

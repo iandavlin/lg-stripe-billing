@@ -14,6 +14,14 @@ interface EntitlementRepository
     /** @return Entitlement[] */
     public function activeForCustomer(int $customerId, ?DateTimeImmutable $now = null): array;
 
+    /**
+     * Active entitlements (any starts_at, expires_at > now, not revoked) sourced
+     * from gift codes. Used by GiftRedemptionService to compute conflicts.
+     *
+     * @return Entitlement[]
+     */
+    public function activeGiftsForCustomer(int $customerId, ?DateTimeImmutable $now = null): array;
+
     /** @return Entitlement[] */
     public function findBySource(string $sourceType, int $sourceId): array;
 
@@ -24,6 +32,7 @@ interface EntitlementRepository
         string             $sourceType,
         ?int               $sourceId,
         ?DateTimeImmutable $expiresAt,
+        ?DateTimeImmutable $startsAt = null,
     ): Entitlement;
 
     public function revoke(int $entitlementId): void;

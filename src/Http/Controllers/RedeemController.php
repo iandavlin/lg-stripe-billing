@@ -4,11 +4,8 @@ declare(strict_types=1);
 
 namespace LGSB\Http\Controllers;
 
-use DateTimeImmutable;
 use LGSB\Core\CustomerManager;
-use LGSB\Core\EntitlementManager;
-use LGSB\Core\WpSync;
-use LGSB\Domain\Entitlement;
+use LGSB\Core\GiftRedemptionService;
 use LGSB\Domain\Repositories\GiftCodeRepository;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
@@ -16,19 +13,25 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 final class RedeemController
 {
     public function __construct(
-        private readonly GiftCodeRepository $giftCodes,
-        private readonly CustomerManager    $customers,
-        private readonly EntitlementManager $entitlements,
-        private readonly WpSync             $wpSync,
+        private readonly GiftCodeRepository    $giftCodes,
+        private readonly CustomerManager       $customers,
+        private readonly GiftRedemptionService $service,
     ) {}
 
-    /** POST /v1/redeem — body: { code, email, name? } */
+    /**
+     * POST /v1/redeem — body: { code, email, name?, strategy? }
+     *
+     * If a tier conflict exists and no strategy is provided, the response
+     * contains `requires_choice: true` plus an `options` array; the client
+     * re-submits with one of the option ids in `strategy`.
+     */
     public function redeem(Request $request, Response $response): Response
     {
-        $body  = (array) $request->getParsedBody();
-        $code  = strtoupper(trim((string) ($body['code']  ?? '')));
-        $email = trim((string) ($body['email'] ?? ''));
-        $name  = trim((string) ($body['name']  ?? ''));
+        $body     = (array) $request->getParsedBody();
+        $code     = strtoupper(trim((string) ($body['code']  ?? '')));
+        $email    = trim((string) ($body['email'] ?? ''));
+        $name     = trim((string) ($body['name']  ?? ''));
+        $strategy = trim((string) ($body['strategy'] ?? '')) ?: null;
 
         if ($code === '') {
             return self::json($response, ['error' => 'code is required.'], 400);
@@ -45,28 +48,10 @@ final class RedeemController
             return self::json($response, ['error' => 'Code has already been redeemed.'], 409);
         }
 
-        $customer  = $this->customers->findOrCreate($email, null, $name ?: null, null);
-        $expiresAt = new DateTimeImmutable("+{$giftCode->durationDays} days");
+        $customer = $this->customers->findOrCreate($email, null, $name ?: null, null);
+        $result   = $this->service->redeem($customer->id, $giftCode, $strategy);
 
-        $this->entitlements->grant(
-            $customer->id,
-            Entitlement::KIND_MEMBERSHIP_TIER,
-            $giftCode->tier,
-            Entitlement::SOURCE_GIFT_CODE,
-            $giftCode->id,
-            $expiresAt,
-        );
-
-        $this->giftCodes->redeem($giftCode->id, $customer->id);
-        $this->wpSync->trigger($customer->id);
-
-        return self::json($response, [
-            'ok'          => true,
-            'message'     => "Redeemed — enjoy your {$giftCode->durationDays}-day {$giftCode->tier} membership!",
-            'customer_id' => $customer->id,
-            'tier'        => $giftCode->tier,
-            'expires_at'  => $expiresAt->format('Y-m-d'),
-        ]);
+        return self::json($response, $result);
     }
 
     private static function json(Response $response, array $data, int $status = 200): Response
