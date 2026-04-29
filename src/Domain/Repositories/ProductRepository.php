@@ -29,7 +29,7 @@ interface ProductRepository
      * Raw price data needed for gift/bulk checkout: amount, currency, interval,
      * and optional duration. Null if the price isn't in our DB.
      *
-     * @return array{unit_amount_cents:int,currency:string,interval:string|null,grants_duration_days:int|null}|null
+     * @return array{unit_amount_cents:int,currency:string,interval:string|null,grants_duration_days:int|null,stripe_product_id:string}|null
      */
     public function findPriceData(string $stripePriceId): ?array;
 

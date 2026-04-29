@@ -70,8 +70,11 @@ final class PdoProductRepository implements ProductRepository
     public function findPriceData(string $stripePriceId): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT unit_amount_cents, currency, `interval`, grants_duration_days
-             FROM prices WHERE stripe_price_id = ? LIMIT 1'
+            'SELECT pr.unit_amount_cents, pr.currency, pr.`interval`, pr.grants_duration_days,
+                    p.stripe_product_id
+             FROM prices pr
+             JOIN products p ON p.id = pr.product_id
+             WHERE pr.stripe_price_id = ? LIMIT 1'
         );
         $stmt->execute([$stripePriceId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -83,6 +86,7 @@ final class PdoProductRepository implements ProductRepository
             'currency'             => (string) $row['currency'],
             'interval'             => $row['interval'] !== null ? (string) $row['interval'] : null,
             'grants_duration_days' => $row['grants_duration_days'] !== null ? (int) $row['grants_duration_days'] : null,
+            'stripe_product_id'    => (string) $row['stripe_product_id'],
         ];
     }
 

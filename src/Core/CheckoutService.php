@@ -95,19 +95,15 @@ class CheckoutService
             default => 365,
         };
 
-        $label = $pct > 0
-            ? "{$tier} Gift Membership ({$pct}% bulk discount)"
-            : "{$tier} Gift Membership";
-
         $params = [
             'ui_mode'    => 'embedded',
             'mode'       => 'payment',
             'line_items' => [[
                 'quantity'   => $quantity,
                 'price_data' => [
-                    'currency'     => $priceData['currency'],
-                    'unit_amount'  => $unitCents,
-                    'product_data' => ['name' => $label],
+                    'currency'    => $priceData['currency'],
+                    'unit_amount' => $unitCents,
+                    'product'     => $priceData['stripe_product_id'],
                 ],
             ]],
             'return_url' => $this->settings->getCheckoutReturnUrl(),
