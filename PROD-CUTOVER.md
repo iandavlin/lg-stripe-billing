@@ -53,6 +53,8 @@ Pages to add (use the final slugs you pick):
 - [ ] `/join/` (or wherever `[lg_join]` lives)
 - [ ] `/gift/` (or wherever `[lg_gift]` lives)
 - [ ] `/redeem/` (or wherever `[lg_redeem_gift]` lives)
+- [ ] `/manage-subscription/` (or wherever `[lg_manage_subscription]` lives)
+- [ ] `/request-refund/` (or wherever `[lg_refund_request]` lives)
 - [ ] Stripe return path is matched by `session_id=` query string already — no entry needed
 
 ## WordPress Plugin Settings (Settings → LG Member Sync)
@@ -60,6 +62,9 @@ Pages to add (use the final slugs you pick):
 - [ ] DB connection: host, name, user, password (`lg_membership_prod`)
 - [ ] Stripe secret key (live)
 - [ ] Shared secret (must match `LGMS_SHARED_SECRET` in `.env`)
+- [ ] **Refund email**: address that receives `[lg_refund_request]` submissions and admin-action failure alerts. Leave blank to use the WP admin email.
+- [ ] **Refund window (days)**: customer-facing eligibility window shown on `/request-refund/`. Default 30.
+- [ ] **Plan-switch cooldown (hours)**: minimum hours between customer-initiated plan changes. Default 24. Set to 0 to disable.
 
 ## FluentCRM
 
@@ -69,6 +74,28 @@ Pages to add (use the final slugs you pick):
 ## WP options for gift / redemption flow
 
 - [ ] `wp option set lgms_redeem_url 'https://loothgroup.com/<redeem-page-slug>/'` — used by GiftMailer to build clickable code links in the gift email. Falls back to `home_url('/lggift/')` if unset, so set it explicitly to whatever final slug `[lg_redeem_gift]` lives at.
+
+## WP membership pages — create with [lg_member_nav] prepended
+
+The five membership pages should each start with `[lg_member_nav]` followed by the page-specific shortcode. Auto-discovered nav links between them; current page highlighted.
+
+- [ ] `/lgjoin/` (or chosen slug) → `[lg_member_nav][lg_join]`
+- [ ] `/lggift-buy/` (or chosen slug) → `[lg_member_nav][lg_gift]`
+- [ ] `/lggift/` (or chosen slug) → `[lg_member_nav][lg_redeem_gift]`
+- [ ] `/manage-subscription/` (or chosen slug) → `[lg_member_nav][lg_manage_subscription]`
+- [ ] `/request-refund/` (or chosen slug) → `[lg_member_nav][lg_refund_request]`
+
+The plugin auto-enqueues a baseline stylesheet (`assets/lg-shortcodes.css`) on any page containing one of these shortcodes — handles success/error states and form polish. Theme CSS can override.
+
+## Admin tools available on user profile pages (no extra setup)
+
+Any WP admin viewing a user-edit page (`/wp-admin/user-edit.php?user_id=X`) gets a "Membership" section at the bottom with:
+- Cancel / Cancel & Refund buttons per active subscription (with optional auto-block on refund)
+- Refund & Void per gift purchase
+- Block / Unblock from future subscriptions (with reason textarea)
+- Recent admin actions audit log
+
+Customer-facing self-service is on `/manage-subscription/`: change plan (now or at next renewal) + cancel (immediate or at period end). Both paths call Stripe directly; webhooks revoke roles automatically.
 
 ## FluentSMTP / Email
 
@@ -88,3 +115,7 @@ Pages to add (use the final slugs you pick):
 - [ ] Run a manual gift checkout end-to-end, confirm email received + contact in FluentCRM
 - [ ] Trigger WP cron manually: `wp cron event run lgms_poll_tick`
 - [ ] Verify arbiter assigns correct role after subscription checkout
+- [ ] Submit a refund request via `/request-refund/`, confirm HTML email lands at the configured destination
+- [ ] As an active subscriber, attempt a gift redemption — confirm 409 with portal link
+- [ ] As a customer, switch plans on `/manage-subscription/` (both "now" and "at renewal" timings)
+- [ ] As an admin, run the guardrail test once on dev to catch any prod-config drift: `wp eval-file /tmp/guardrail-test.php`

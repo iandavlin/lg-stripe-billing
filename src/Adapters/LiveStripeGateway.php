@@ -9,11 +9,22 @@ use Stripe\StripeClient;
 
 final class LiveStripeGateway implements StripeGateway
 {
+    /**
+     * Pinned Stripe API version. Locks request/response shapes to a known
+     * good version so the integration is insulated from Dashboard-side
+     * version flips. Bump intentionally after testing — see Stripe API
+     * changelog at https://docs.stripe.com/upgrades.
+     */
+    private const STRIPE_API_VERSION = '2024-12-18.acacia';
+
     private readonly StripeClient $stripe;
 
     public function __construct(string $secretKey)
     {
-        $this->stripe = new StripeClient($secretKey);
+        $this->stripe = new StripeClient([
+            'api_key'        => $secretKey,
+            'stripe_version' => self::STRIPE_API_VERSION,
+        ]);
     }
 
     public function createCheckoutSession(array $params): object
