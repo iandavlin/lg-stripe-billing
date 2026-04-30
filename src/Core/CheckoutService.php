@@ -26,9 +26,10 @@ class CheckoutService
      */
     public function createSubscriptionSession(
         string  $priceId,
-        ?string $email    = null,
-        ?string $country  = null,
+        ?string $email     = null,
+        ?string $country   = null,
         ?string $promoCode = null,
+        ?string $name      = null,
     ): array {
         if ($this->products->tierForPrice($priceId) === null) {
             throw new InvalidArgumentException("Price {$priceId} is not mapped to a membership tier.");
@@ -44,7 +45,7 @@ class CheckoutService
         ];
 
         $this->applyPromoOrAllow($params, $promoCode);
-        $this->attachCustomer($params, $email, $country);
+        $this->attachCustomer($params, $email, $country, $name);
 
         $session = $this->stripe->createCheckoutSession($params);
         return ['clientSecret' => (string) $session->client_secret];
@@ -61,6 +62,7 @@ class CheckoutService
         ?string $email     = null,
         ?string $country   = null,
         ?string $promoCode = null,
+        ?string $name      = null,
     ): array {
         $tier = $this->products->tierForPrice($priceId);
         if ($tier === null) {
@@ -92,7 +94,7 @@ class CheckoutService
         ];
 
         $this->applyPromoOrAllow($params, $promoCode);
-        $this->attachCustomer($params, $email, $country);
+        $this->attachCustomer($params, $email, $country, $name);
 
         $session = $this->stripe->createCheckoutSession($params);
         return ['clientSecret' => (string) $session->client_secret];
@@ -121,12 +123,12 @@ class CheckoutService
         $params['discounts'] = [['promotion_code' => $promoId]];
     }
 
-    private function attachCustomer(array &$params, ?string $email, ?string $country): void
+    private function attachCustomer(array &$params, ?string $email, ?string $country, ?string $name = null): void
     {
         if ($email === null || $email === '') {
             return;
         }
-        $customer = $this->customers->findOrCreate($email, null, null, $country);
+        $customer = $this->customers->findOrCreate($email, null, $name, $country);
         if ($customer->stripeCustomerId !== null) {
             $params['customer'] = $customer->stripeCustomerId;
         } else {
@@ -147,9 +149,10 @@ class CheckoutService
         ?string $email     = null,
         ?string $country   = null,
         ?string $promoCode = null,
+        ?string $name      = null,
     ): array {
-        if ($quantity < 2) {
-            throw new InvalidArgumentException('Gift checkout requires quantity >= 2.');
+        if ($quantity < 1) {
+            throw new InvalidArgumentException('Gift checkout requires quantity >= 1.');
         }
 
         $tier = $this->products->tierForPrice($priceId);
@@ -182,7 +185,11 @@ class CheckoutService
                 'price_data' => [
                     'currency'     => $priceData['currency'],
                     'unit_amount'  => $unitCents,
-                    'product_data' => ['name' => "{$priceData['product_name']} — {$quantity}-Seat Gift Pack"],
+                    'product_data' => [
+                        'name' => $quantity === 1
+                            ? "{$priceData['product_name']} — Gift Membership"
+                            : "{$priceData['product_name']} — {$quantity}-Seat Gift Pack",
+                    ],
                 ],
             ]],
             'return_url' => $this->settings->getCheckoutReturnUrl(),
@@ -196,7 +203,7 @@ class CheckoutService
         ];
 
         $this->applyPromoOrAllow($params, $promoCode);
-        $this->attachCustomer($params, $email, $country);
+        $this->attachCustomer($params, $email, $country, $name);
 
         $session = $this->stripe->createCheckoutSession($params);
         return ['clientSecret' => (string) $session->client_secret];

@@ -24,21 +24,29 @@ final class CheckoutController
     ) {}
 
     /**
-     * POST /v1/checkout — body: { price_id, quantity?, email?, country?, promo_code? }
+     * POST /v1/checkout — body: { price_id, quantity?, email?, country?, promo_code?, gift? }
      *
-     * Routes the request based on quantity and price type:
-     *   quantity >= 2                          → gift session (one-time, qty seats)
-     *   quantity = 1 + recurring price         → subscription session
-     *   quantity = 1 + one_time membership price → one-time membership session
+     * Intent dispatch:
+     *   gift=true  (any qty>=1)            → gift session (one-time per seat, codes generated)
+     *   gift=false + recurring price       → subscription session
+     *   gift=false + one_time membership   → one-time membership session
+     *
+     * Backwards compatibility: if `gift` is omitted, qty>=2 is still treated
+     * as gift intent (the legacy heuristic). New clients should send `gift`
+     * explicitly to avoid ambiguity around qty=1 gifts.
      */
     public function create(Request $request, Response $response): Response
     {
         $body      = (array) $request->getParsedBody();
         $priceId   = trim((string) ($body['price_id']   ?? ''));
         $email     = trim((string) ($body['email']      ?? ''));
+        $name      = trim((string) ($body['name']       ?? ''));
         $country   = trim((string) ($body['country']    ?? ''));
         $promoCode = trim((string) ($body['promo_code'] ?? ''));
         $quantity  = (int)        ($body['quantity']    ?? 1);
+        $isGift    = array_key_exists('gift', $body)
+            ? (bool) $body['gift']
+            : $quantity >= 2;
 
         if ($priceId === '') {
             return self::json($response, ['error' => 'price_id is required'], 400);
@@ -48,14 +56,15 @@ final class CheckoutController
         }
 
         $emailArg   = $email     !== '' ? $email     : null;
+        $nameArg    = $name      !== '' ? $name      : null;
         $countryArg = $country   !== '' ? $country   : null;
         $promoArg   = $promoCode !== '' ? $promoCode : null;
 
         // Guard: a customer with an active subscription should manage it via
-        // the Stripe Customer Portal, not start a parallel one. Only blocks
-        // sub + one-time membership flows; gift purchases (qty>=2) are
-        // independent and can stack on top of an active sub.
-        if ($quantity === 1 && $emailArg !== null) {
+        // the Stripe Customer Portal rather than start a parallel one. Only
+        // applies to sub / one-time membership purchases. Gift intent bypasses —
+        // an active subscriber may still buy gifts for others.
+        if (!$isGift && $emailArg !== null) {
             $existing = $this->customers->findByEmail($emailArg);
             if ($existing !== null) {
                 $activeSubs = $this->subscriptions->findActiveForCustomer($existing->id);
@@ -69,19 +78,19 @@ final class CheckoutController
         }
 
         try {
-            if ($quantity >= 2) {
+            if ($isGift) {
                 $result = $this->checkout->createGiftCheckoutSession(
-                    $priceId, $quantity, $emailArg, $countryArg, $promoArg,
+                    $priceId, $quantity, $emailArg, $countryArg, $promoArg, $nameArg,
                 );
             } else {
                 $priceData = $this->products->findPriceData($priceId);
                 $isOneTime = $priceData !== null && $priceData['interval'] === null;
                 $result = $isOneTime
                     ? $this->checkout->createOneTimeMembershipSession(
-                        $priceId, $emailArg, $countryArg, $promoArg,
+                        $priceId, $emailArg, $countryArg, $promoArg, $nameArg,
                     )
                     : $this->checkout->createSubscriptionSession(
-                        $priceId, $emailArg, $countryArg, $promoArg,
+                        $priceId, $emailArg, $countryArg, $promoArg, $nameArg,
                     );
             }
         } catch (InvalidArgumentException $e) {
