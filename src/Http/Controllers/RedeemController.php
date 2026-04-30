@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace LGSB\Http\Controllers;
 
+use LGSB\Core\CheckoutService;
 use LGSB\Core\CustomerManager;
 use LGSB\Core\GiftRedemptionService;
 use LGSB\Domain\Repositories\GiftCodeRepository;
@@ -14,10 +15,11 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 final class RedeemController
 {
     public function __construct(
-        private readonly GiftCodeRepository    $giftCodes,
-        private readonly CustomerManager       $customers,
-        private readonly GiftRedemptionService $service,
+        private readonly GiftCodeRepository     $giftCodes,
+        private readonly CustomerManager        $customers,
+        private readonly GiftRedemptionService  $service,
         private readonly SubscriptionRepository $subscriptions,
+        private readonly CheckoutService        $checkout,
     ) {}
 
     /**
@@ -56,7 +58,14 @@ final class RedeemController
         $customer = $this->customers->findOrCreate($email, null, $name ?: null, null);
 
         if ($this->subscriptions->findActiveForCustomer($customer->id) !== []) {
-            return self::json($response, ['error' => 'Gift codes are for new members. Your account already has an active subscription — manage it via the member portal.'], 409);
+            $payload = ['error' => 'Gift codes are for new members. Your account already has an active subscription.'];
+            try {
+                $portal = $this->checkout->createPortalSession($customer->id);
+                $payload['portal_url'] = $portal['url'];
+            } catch (\Throwable) {
+                // No Stripe ID on record — omit portal link rather than crash.
+            }
+            return self::json($response, $payload, 409);
         }
 
         $result   = $this->service->redeem($customer->id, $giftCode, $strategy);

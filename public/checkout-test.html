@@ -200,8 +200,12 @@ document.getElementById('startRedeem').addEventListener('click', async () => {
       resultEl.className   = 'redeem-result ok';
       resultEl.textContent = `✓ ${data.message} (expires ${data.expires_at})`;
     } else {
-      resultEl.className   = 'redeem-result err';
-      resultEl.textContent = `✗ ${data.error}`;
+      resultEl.className  = 'redeem-result err';
+      if (data.portal_url) {
+        resultEl.innerHTML = `✗ ${data.error} <a href="${data.portal_url}" target="_blank">Manage your subscription</a>`;
+      } else {
+        resultEl.textContent = `✗ ${data.error}`;
+      }
     }
   } catch (err) {
     resultEl.className   = 'redeem-result err';
