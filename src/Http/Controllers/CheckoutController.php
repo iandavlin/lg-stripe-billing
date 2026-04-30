@@ -9,16 +9,18 @@ use LGSB\Core\CheckoutService;
 use LGSB\Core\CustomerManager;
 use LGSB\Core\ReturnHandler;
 use LGSB\Domain\Repositories\ProductRepository;
+use LGSB\Domain\Repositories\SubscriptionRepository;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 final class CheckoutController
 {
     public function __construct(
-        private readonly CheckoutService    $checkout,
-        private readonly ReturnHandler      $returnHandler,
-        private readonly CustomerManager    $customers,
-        private readonly ProductRepository  $products,
+        private readonly CheckoutService        $checkout,
+        private readonly ReturnHandler          $returnHandler,
+        private readonly CustomerManager        $customers,
+        private readonly ProductRepository      $products,
+        private readonly SubscriptionRepository $subscriptions,
     ) {}
 
     /**
@@ -48,6 +50,23 @@ final class CheckoutController
         $emailArg   = $email     !== '' ? $email     : null;
         $countryArg = $country   !== '' ? $country   : null;
         $promoArg   = $promoCode !== '' ? $promoCode : null;
+
+        // Guard: a customer with an active subscription should manage it via
+        // the Stripe Customer Portal, not start a parallel one. Only blocks
+        // sub + one-time membership flows; gift purchases (qty>=2) are
+        // independent and can stack on top of an active sub.
+        if ($quantity === 1 && $emailArg !== null) {
+            $existing = $this->customers->findByEmail($emailArg);
+            if ($existing !== null) {
+                $activeSubs = $this->subscriptions->findActiveForCustomer($existing->id);
+                if ($activeSubs !== []) {
+                    return self::json($response, [
+                        'error'          => 'You already have an active subscription. Manage your plan from your account to upgrade, downgrade, or cancel — starting a second subscription would bill you twice.',
+                        'has_active_sub' => true,
+                    ], 409);
+                }
+            }
+        }
 
         try {
             if ($quantity >= 2) {
