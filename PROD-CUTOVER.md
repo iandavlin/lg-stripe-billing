@@ -66,6 +66,10 @@ Pages to add (use the final slugs you pick):
 - [ ] Create "Gift Purchasers" list: `wp eval 'use FluentCrm\App\Models\Lists; echo Lists::create(["title" => "Gift Purchasers", "slug" => "gift-purchasers"])->id . PHP_EOL;'`
 - [ ] Set the list ID as a WP option: `wp option set lgms_gift_purchaser_list_id <ID>`
 
+## WP options for gift / redemption flow
+
+- [ ] `wp option set lgms_redeem_url 'https://loothgroup.com/<redeem-page-slug>/'` — used by GiftMailer to build clickable code links in the gift email. Falls back to `home_url('/lggift/')` if unset, so set it explicitly to whatever final slug `[lg_redeem_gift]` lives at.
+
 ## FluentSMTP / Email
 
 - [ ] Install FluentSMTP plugin
