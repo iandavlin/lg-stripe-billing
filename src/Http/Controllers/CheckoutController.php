@@ -60,13 +60,16 @@ final class CheckoutController
         $countryArg = $country   !== '' ? $country   : null;
         $promoArg   = $promoCode !== '' ? $promoCode : null;
 
-        // Guard: a customer with an active subscription should manage it via
-        // the Stripe Customer Portal rather than start a parallel one. Only
-        // applies to sub / one-time membership purchases. Gift intent bypasses —
-        // an active subscriber may still buy gifts for others.
+        // Guards on existing-customer state. Gift purchases bypass these (an
+        // active subscriber may still buy gifts for others).
         if (!$isGift && $emailArg !== null) {
             $existing = $this->customers->findByEmail($emailArg);
             if ($existing !== null) {
+                if ($existing->isBlocked()) {
+                    return self::json($response, [
+                        'error' => 'This account is not eligible for new subscriptions. Please contact support if you believe this is in error.',
+                    ], 403);
+                }
                 $activeSubs = $this->subscriptions->findActiveForCustomer($existing->id);
                 if ($activeSubs !== []) {
                     return self::json($response, [

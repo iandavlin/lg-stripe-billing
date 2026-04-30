@@ -57,6 +57,10 @@ final class RedeemController
 
         $customer = $this->customers->findOrCreate($email, null, $name ?: null, null);
 
+        if ($customer->isBlocked()) {
+            return self::json($response, ['error' => 'This account is not eligible to redeem gift codes. Please contact support if you believe this is in error.'], 403);
+        }
+
         if ($this->subscriptions->findActiveForCustomer($customer->id) !== []) {
             $payload = ['error' => 'Gift codes are for new members. Your account already has an active subscription — to use a gift code, cancel your subscription and redeem once it expires.'];
             try {

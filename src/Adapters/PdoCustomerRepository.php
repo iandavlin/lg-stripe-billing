@@ -93,6 +93,8 @@ final class PdoCustomerRepository implements CustomerRepository
             name: $row['name'] !== null ? (string) $row['name'] : null,
             country: $row['country'] !== null ? (string) $row['country'] : null,
             locale: $row['locale'] !== null ? (string) $row['locale'] : null,
+            blockedAt: array_key_exists('blocked_at', $row) && $row['blocked_at'] !== null ? (string) $row['blocked_at'] : null,
+            blockReason: array_key_exists('block_reason', $row) && $row['block_reason'] !== null ? (string) $row['block_reason'] : null,
         );
     }
 }

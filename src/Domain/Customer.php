@@ -14,5 +14,12 @@ readonly class Customer
         public ?string $name,
         public ?string $country,
         public ?string $locale,
+        public ?string $blockedAt = null,
+        public ?string $blockReason = null,
     ) {}
+
+    public function isBlocked(): bool
+    {
+        return $this->blockedAt !== null;
+    }
 }
