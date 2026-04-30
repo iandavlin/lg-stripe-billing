@@ -53,9 +53,9 @@ Pages to add (use the final slugs you pick):
 - [ ] `/join/` (or wherever `[lg_join]` lives)
 - [ ] `/gift/` (or wherever `[lg_gift]` lives)
 - [ ] `/redeem/` (or wherever `[lg_redeem_gift]` lives)
-- [ ] `/manage-subscription/` (or wherever `[lg_manage_subscription]` lives)
-- [ ] `/request-refund/` (or wherever `[lg_refund_request]` lives)
+- [ ] `/request-refund/` (or wherever `[lg_refund_request]` lives) — let anonymous users submit refund requests for unexpected charges before they remember to log in
 - [ ] Stripe return path is matched by `session_id=` query string already — no entry needed
+- ~~`/manage-subscription/`~~ — **do NOT whitelist**. The shortcode shows "Please sign in" to anonymous users, so making it public has no benefit. Keep it members-only.
 
 ## WordPress Plugin Settings (Settings → LG Member Sync)
 
