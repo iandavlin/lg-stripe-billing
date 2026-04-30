@@ -7,6 +7,7 @@ namespace LGSB\Http\Controllers;
 use LGSB\Core\CustomerManager;
 use LGSB\Core\GiftRedemptionService;
 use LGSB\Domain\Repositories\GiftCodeRepository;
+use LGSB\Domain\Repositories\SubscriptionRepository;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
@@ -16,6 +17,7 @@ final class RedeemController
         private readonly GiftCodeRepository    $giftCodes,
         private readonly CustomerManager       $customers,
         private readonly GiftRedemptionService $service,
+        private readonly SubscriptionRepository $subscriptions,
     ) {}
 
     /**
@@ -52,6 +54,11 @@ final class RedeemController
         }
 
         $customer = $this->customers->findOrCreate($email, null, $name ?: null, null);
+
+        if ($this->subscriptions->findActiveForCustomer($customer->id) !== []) {
+            return self::json($response, ['error' => 'Gift codes are for new members. Your account already has an active subscription — manage it via the member portal.'], 409);
+        }
+
         $result   = $this->service->redeem($customer->id, $giftCode, $strategy);
 
         return self::json($response, $result);
