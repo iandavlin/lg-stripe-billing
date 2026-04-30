@@ -23,6 +23,12 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 - [ ] Register prod webhook in Stripe Dashboard (events: `product.created`, `product.updated`, `price.created`, `price.updated`, `customer.subscription.updated`, `customer.subscription.deleted`, `charge.refunded`)
 - [ ] Set `STRIPE_WEBHOOK_SECRET` in `.env` to prod webhook secret
 - [ ] Create Stripe Coupon `patreon_migration` (5% off, expires after migration window) and Promotion Code `PATREON5`
+- [ ] Configure Customer Portal at https://dashboard.stripe.com/settings/billing/portal:
+    - Enable "Customers can switch plans"
+    - Add Looth LITE + Looth PRO products with all prices (monthly + yearly + one-time annual where allowed)
+    - Pick proration policy ("Always invoice" recommended for clearest UX)
+    - Enable "Customers can cancel subscriptions" (default on)
+    - Enable "Update payment methods" + "Update billing information" (defaults on)
 
 ## Environment (.env)
 
