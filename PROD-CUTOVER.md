@@ -44,6 +44,17 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 - [ ] `BULK_DISCOUNT_TIERS` — confirm tiers with Ian before go-live
 - [ ] `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` — prod DB
 
+## BuddyBoss Public Content Allow List
+
+If the live site has BuddyBoss "Private Network" mode enabled, the front-end pages hosting our shortcodes must be added to the **public content** list at WP Admin → BuddyBoss → Settings → General → Public Content. Otherwise non-logged-in visitors get redirected to login before they can buy.
+
+Pages to add (use the final slugs you pick):
+
+- [ ] `/join/` (or wherever `[lg_join]` lives)
+- [ ] `/gift/` (or wherever `[lg_gift]` lives)
+- [ ] `/redeem/` (or wherever `[lg_redeem_gift]` lives)
+- [ ] Stripe return path is matched by `session_id=` query string already — no entry needed
+
 ## WordPress Plugin Settings (Settings → LG Member Sync)
 
 - [ ] DB connection: host, name, user, password (`lg_membership_prod`)
