@@ -62,6 +62,11 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 - [ ] Send a test email to verify delivery
 - [ ] Verify gift code email arrives after a test checkout
 
+## Cloudflare / Edge
+
+- [ ] Configure Cloudflare rate limiting rule on `loothgroup.com/billing/v1/redeem` (e.g. 10 req / min / IP, block above) — protects the gift code redemption endpoint from brute force. Cloudflare Pro plan covers this.
+- [ ] Optionally: Cloudflare WAF managed rules + bot fight mode on the entire `/billing/*` path.
+
 ## Final Verification
 
 - [ ] Run a manual subscription checkout end-to-end
