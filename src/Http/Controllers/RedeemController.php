@@ -58,7 +58,7 @@ final class RedeemController
         $customer = $this->customers->findOrCreate($email, null, $name ?: null, null);
 
         if ($this->subscriptions->findActiveForCustomer($customer->id) !== []) {
-            $payload = ['error' => 'Gift codes are for new members. Your account already has an active subscription.'];
+            $payload = ['error' => 'Gift codes are for new members. Your account already has an active subscription — to use a gift code, cancel your subscription and redeem once it expires.'];
             try {
                 $portal = $this->checkout->createPortalSession($customer->id);
                 $payload['portal_url'] = $portal['url'];
