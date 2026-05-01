@@ -239,9 +239,15 @@ class CheckoutService
             throw new InvalidArgumentException("Price {$priceId} is not a regional price; use createSubscriptionSession.");
         }
 
+        $priceData = $this->products->findPriceData($priceId);
+        if ($priceData === null) {
+            throw new InvalidArgumentException("Price {$priceId} not found.");
+        }
+
         $params = [
             'ui_mode'    => 'embedded',
             'mode'       => 'setup',
+            'currency'   => $priceData['currency'],
             'return_url' => $this->settings->getCheckoutReturnUrl(),
             'metadata'   => [
                 'checkout_type' => 'regional_verify',
