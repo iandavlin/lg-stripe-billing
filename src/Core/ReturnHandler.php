@@ -116,6 +116,12 @@ class ReturnHandler
         }
         $pmId           = (string) $pm->id;
         $billingCountry = strtoupper((string) ($pm->billing_details->address->country ?? ''));
+        // Card issuer country = the bank's country, set by Stripe from the BIN —
+        // NOT user-entered. Required as a second factor to defeat the trivial
+        // "type IN as my billing address" arbitrage path: getting an Indian-
+        // issued credit card is real-world friction that an arbitrageur won't
+        // pay just to save $30/year.
+        $issuerCountry  = strtoupper((string) ($pm->card->country ?? ''));
 
         // Resolve / create customer.
         $stripeCustomerId = (string) ($session->customer ?? '');
@@ -133,12 +139,17 @@ class ReturnHandler
             $billingCountry ?: null,
         );
 
-        // Billing-country eligibility check.
-        $eligible = $billingCountry !== ''
+        // Eligibility: BOTH billing address AND card issuer must be in the region.
+        // Billing country alone is user-entered metadata Stripe doesn't validate;
+        // the issuer country is from the BIN and can't be spoofed.
+        $billingOk = $billingCountry !== ''
             && $this->products->countryInRegion($billingCountry, $regionTag);
+        $issuerOk  = $issuerCountry !== ''
+            && $this->products->countryInRegion($issuerCountry, $regionTag);
+        $eligible  = $billingOk && $issuerOk;
 
         // Audit every attempt — success and failure.
-        $this->logVerification($customer->id, $priceId, $regionTag, $billingCountry, $eligible);
+        $this->logVerification($customer->id, $priceId, $regionTag, $billingCountry, $issuerCountry, $eligible);
 
         if (!$eligible) {
             // Detach the PM so it can't be charged; no money was ever moved.
@@ -151,12 +162,14 @@ class ReturnHandler
                 'reason'            => 'region_mismatch',
                 'region_tag'        => $regionTag,
                 'billing_country'   => $billingCountry,
+                'issuer_country'    => $issuerCountry,
                 'standard_price_id' => $standardPriceId,
             ]));
 
+            $reason = !$billingOk ? "billing country {$billingCountry}" : "card issuer country {$issuerCountry}";
             return [
                 'ok'           => false,
-                'message'      => "Billing country {$billingCountry} is not eligible for {$regionTag} pricing.",
+                'message'      => "Not eligible for {$regionTag} pricing — {$reason} doesn't match.",
                 'redirect_url' => $failUrl,
             ];
         }
@@ -342,17 +355,22 @@ class ReturnHandler
         string $priceId,
         string $regionTag,
         string $billingCountry,
+        string $issuerCountry,
         bool   $passed,
     ): void {
         try {
-            $reason = "billing_country={$billingCountry} region_tag={$regionTag}";
+            $reason = "billing_country={$billingCountry} issuer_country={$issuerCountry} region_tag={$regionTag}";
+            $err    = null;
+            if (!$passed) {
+                $err = "billing={$billingCountry} issuer={$issuerCountry} not both in {$regionTag}";
+            }
             $this->auditLog->log(
                 $customerId,
                 'regional_verify',
                 $priceId,
                 $reason,
                 $passed,
-                $passed ? null : "Country {$billingCountry} not in {$regionTag}",
+                $err,
             );
         } catch (\Throwable) {
             // Audit failure must never block the main flow.
