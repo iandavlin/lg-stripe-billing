@@ -42,6 +42,7 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 - [ ] `LGMS_GIFT_MAIL_URL=https://loothgroup.com/wp-json/lg-member-sync/v1/send-gift-codes`
 - [ ] `LGMS_SHARED_SECRET` — generate fresh secret, match in WP plugin settings
 - [ ] `BULK_DISCOUNT_TIERS` — confirm tiers with Ian before go-live
+- [ ] `APP_REGIONAL_FAIL_URL` — URL of the WP page hosting `[lg_regional_fail]` (falls back to `APP_HOME_URL` if unset)
 - [ ] `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` — prod DB
 
 ## BuddyBoss Public Content Allow List
@@ -84,6 +85,7 @@ The five membership pages should each start with `[lg_member_nav]` followed by t
 - [ ] `/lggift/` (or chosen slug) → `[lg_member_nav][lg_redeem_gift]`
 - [ ] `/manage-subscription/` (or chosen slug) → `[lg_member_nav][lg_manage_subscription]`
 - [ ] `/request-refund/` (or chosen slug) → `[lg_member_nav][lg_refund_request]`
+- [ ] `/membership-not-available/` (or chosen slug) → `[lg_regional_fail]` — regional billing-country failure landing (set URL in `APP_REGIONAL_FAIL_URL`)
 
 The plugin auto-enqueues a baseline stylesheet (`assets/lg-shortcodes.css`) on any page containing one of these shortcodes — handles success/error states and form polish. Theme CSS can override.
 
@@ -112,19 +114,112 @@ Customer-facing self-service is on `/manage-subscription/`: change plan (now or 
 
 ## Regional pricing (developing-world discount)
 
-Infrastructure is built into the catalog: `prices.region_tag` + `price_regions` table. To enable on prod:
+### Schema — product-level region_tag (session 7+)
 
-1. **Create regional Stripe prices** for each tier (e.g. a $2/month "Looth LITE — low income" alongside the standard $5/month). Same Product, additional Price.
-2. **Tag them in our DB** via `db/catalog.json` and re-run `php bin/stripe-import-catalog.php db/catalog.json`. Use a `region_tag` like `low_income` and a lower `priority` (e.g. `50`) than the default-region prices (`100`) so the regional price wins in the resolver.
-3. **Populate `price_regions`** with the country → region_tag map. SQL example:
-    ```sql
-    INSERT INTO price_regions (country_code, region_tag) VALUES
-      ('IN', 'low_income'), ('NG', 'low_income'), ('PH', 'low_income'),
-      ('BR', 'low_income'), ('ID', 'low_income'), ('VN', 'low_income'),
-      ('PK', 'low_income'), ('BD', 'low_income'), ('EG', 'low_income'),
-      ('KE', 'low_income');  -- adjust per actual policy
-    ```
-4. **Verify**: `curl 'https://loothgroup.com/billing/v1/products?country=IN'` should return the low-income prices for visitors detected from those countries; default (`region_tag: null`) prices for everyone else. The `[lg_join]` shortcode shows a "Regional pricing applied for IN" note when a regional price was returned.
+Region tagging lives on `products.region_tag`, not `prices.region_tag`. This enables the Setup Intent verification flow: when a customer selects a regional price, they enter their card in Stripe setup mode (no charge), then we check the billing country before creating any subscription.
+
+Three-tier model:
+
+| `products.region_tag` | Who sees it | Checkout flow |
+|---|---|---|
+| `NULL` | Everyone (standard) | Direct subscription checkout |
+| `regional_a` | Countries in `price_regions` mapped to `regional_a` | Setup Intent → verify billing country → subscribe |
+| `regional_b` | Countries in `price_regions` mapped to `regional_b` | Setup Intent → verify billing country → subscribe |
+
+Six products total: LITE Standard, LITE Regional A, LITE Regional B, PRO Standard, PRO Regional A, PRO Regional B. Regional products all use the same DB `ref` as their standard counterpart (`looth2`/`looth3`) so entitlements are granted identically.
+
+### Pricing locked in (USD, no Adaptive Pricing FX gymnastics)
+
+| | Standard | Regional A | Regional B |
+|---|---|---|---|
+| LITE monthly | $5 | $4 | $3 |
+| LITE yearly | $60 | $30 | $20 |
+| PRO monthly | $11 | $8 | $6 |
+| PRO yearly | $132 | $65 | $40 |
+
+Gifts always use standard products — no regional pricing on gift purchases (avoids arbitrage where a low-region buyer resells codes to high-region recipients).
+
+### Activating regional pricing on prod
+
+1. **Run migration 005** to add `products.region_tag`:
+   ```sql
+   source db/migrations/005_products_region_tag.sql;
+   ```
+
+2. **Import the catalog** (creates 4 new Stripe products + 8 prices):
+   ```bash
+   php bin/stripe-import-catalog.php db/catalog.json
+   ```
+
+3. **Apply the printed SQL stamps** after the webhook has synced the new products/prices down. The stamps set `ref`, `kind`, and `region_tag` on the products rows. Example output:
+   ```sql
+   UPDATE products SET ref = 'looth2', kind = 'membership', region_tag = 'regional_a' WHERE stripe_product_id = 'prod_xxx';
+   UPDATE products SET ref = 'looth2', kind = 'membership', region_tag = 'regional_b' WHERE stripe_product_id = 'prod_yyy';
+   UPDATE products SET ref = 'looth3', kind = 'membership', region_tag = 'regional_a' WHERE stripe_product_id = 'prod_zzz';
+   UPDATE products SET ref = 'looth3', kind = 'membership', region_tag = 'regional_b' WHERE stripe_product_id = 'prod_www';
+   ```
+
+4. **Populate `price_regions`** with the country → region_tag map:
+   ```sql
+   -- Regional B: lower-income countries (~$3/mo LITE)
+   INSERT INTO price_regions (country_code, region_tag) VALUES
+     ('IN', 'regional_b'), ('NG', 'regional_b'), ('PH', 'regional_b'),
+     ('ID', 'regional_b'), ('PK', 'regional_b'), ('BD', 'regional_b'),
+     ('VN', 'regional_b'), ('EG', 'regional_b'), ('KE', 'regional_b'),
+     ('GH', 'regional_b'), ('ET', 'regional_b'), ('TZ', 'regional_b'),
+     ('UG', 'regional_b'), ('MM', 'regional_b'), ('KH', 'regional_b');
+
+   -- Regional A: mid-income countries (~$4/mo LITE)
+   INSERT INTO price_regions (country_code, region_tag) VALUES
+     ('BR', 'regional_a'), ('MX', 'regional_a'), ('TR', 'regional_a'),
+     ('AR', 'regional_a'), ('CO', 'regional_a'), ('PE', 'regional_a'),
+     ('ZA', 'regional_a'), ('UA', 'regional_a'), ('PL', 'regional_a'),
+     ('RO', 'regional_a'), ('TH', 'regional_a'), ('MY', 'regional_a'),
+     ('CL', 'regional_a'), ('MA', 'regional_a'), ('JO', 'regional_a');
+   ```
+
+5. **Add `APP_REGIONAL_FAIL_URL`** to `.env` pointing to the WP page hosting `[lg_regional_fail]`:
+   ```
+   APP_REGIONAL_FAIL_URL=https://loothgroup.com/membership-not-available/
+   ```
+   If unset, the redirect falls back to `APP_HOME_URL` (safe, not pretty).
+
+6. **Create the `[lg_regional_fail]` WP page** (see WP plugin TODOs). The page receives query params:
+   - `reason=region_mismatch`
+   - `region_tag=regional_a` (or `regional_b`)
+   - `billing_country=XX`
+   - `standard_price_id=price_xxx` (can be used to pre-fill a standard checkout link)
+
+7. **Verify**: `curl 'https://loothgroup.com/billing/v1/products?country=IN'` returns Regional B prices; `?country=US` returns standard prices; `?country=BR` returns Regional A prices.
+
+### Verification flow (how it works at runtime)
+
+```
+Customer picks Regional price from [lg_join]
+  │
+  ├─ POST /v1/checkout {price_id: "price_reg_xxx", email: ...}
+  │     CheckoutController detects product_region_tag != null
+  │     → CheckoutService.createRegionalSetupSession()
+  │     → Stripe Checkout mode=setup (no charge)
+  │
+  ├─ Customer enters card → Stripe saves Setup Intent
+  │
+  ├─ GET /v1/return?session_id=cs_setup_xxx
+  │     ReturnHandler.handleRegionalVerify()
+  │       ├─ Expand setup_intent.payment_method
+  │       ├─ Read billing_details.address.country
+  │       ├─ countryInRegion(country, region_tag) ?
+  │       │
+  │       ├─ PASS: createSubscription(customer, price, pm_id)
+  │       │         upsert subscription + grant entitlement + WP sync
+  │       │         → JSON {ok:true} (normal success render)
+  │       │
+  │       └─ FAIL: detachPaymentMethod(pm_id)
+  │                 log to admin_action_log (action=regional_verify, success=0)
+  │                 → 302 redirect to APP_REGIONAL_FAIL_URL?reason=region_mismatch&...
+  │
+  └─ admin_action_log row written for every attempt (pass + fail)
+```
 
 ## Final Verification
 

@@ -78,4 +78,32 @@ final class LiveStripeGateway implements StripeGateway
         }
         return (string) $data[0]->id;
     }
+
+    public function retrieveSetupIntent(string $setupIntentId, array $expand = []): object
+    {
+        $params = $expand !== [] ? ['expand' => $expand] : [];
+        return $this->stripe->setupIntents->retrieve($setupIntentId, $params);
+    }
+
+    public function retrievePaymentMethod(string $paymentMethodId): object
+    {
+        return $this->stripe->paymentMethods->retrieve($paymentMethodId);
+    }
+
+    public function createSubscription(
+        string $stripeCustomerId,
+        string $priceId,
+        string $paymentMethodId,
+    ): object {
+        return $this->stripe->subscriptions->create([
+            'customer'               => $stripeCustomerId,
+            'items'                  => [['price' => $priceId]],
+            'default_payment_method' => $paymentMethodId,
+        ]);
+    }
+
+    public function detachPaymentMethod(string $paymentMethodId): void
+    {
+        $this->stripe->paymentMethods->detach($paymentMethodId);
+    }
 }

@@ -55,6 +55,12 @@ final class EnvSettingsStore implements SettingsStore
         return BulkPricer::fromEnvString(self::env('BULK_DISCOUNT_TIERS'))->tiers();
     }
 
+    public function getRegionalFailUrl(): string
+    {
+        $url = self::env('APP_REGIONAL_FAIL_URL');
+        return $url !== '' ? $url : $this->getHomeUrl();
+    }
+
     private static function env(string $key): string
     {
         $v = $_ENV[$key] ?? getenv($key);

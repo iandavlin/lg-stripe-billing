@@ -41,4 +41,11 @@ interface SettingsStore
      */
     public function getBulkDiscountTiers(): array;
 
+    /**
+     * URL of the WP page shown when a regional billing-country check fails.
+     * Sourced from APP_REGIONAL_FAIL_URL; falls back to getHomeUrl() if unset.
+     * The return handler appends query params: reason=region_mismatch&region_tag=...
+     */
+    public function getRegionalFailUrl(): string;
+
 }

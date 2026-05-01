@@ -16,11 +16,21 @@
  *   - Prices matched by (type, interval, unit_amount, currency) within
  *     the product. Duplicates are skipped.
  *
+ * Catalog fields:
+ *   ref         — Stripe metadata.ref (must be unique across all products)
+ *   db_ref      — DB products.ref override (defaults to ref if absent)
+ *                 Use this for regional products that share a tier slug with
+ *                 their standard counterpart (e.g. db_ref: "looth2")
+ *   region_tag  — Written into products.region_tag via the SQL stamp
+ *                 (null/absent = standard tier)
+ *   name        — Stripe product name (what customers see)
+ *   kind        — DB products.kind (default: "membership")
+ *
  * Output:
  *   - Console progress log.
  *   - A block of SQL UPDATE statements at the end. Run those against
- *     the lg_membership DB to stamp our internal `ref`/`kind` columns
- *     and `prices.grants_duration_days` (Stripe has no native concept).
+ *     the lg_membership DB to stamp our internal ref/kind/region_tag
+ *     columns and prices.grants_duration_days (Stripe has no native concept).
  *
  * The webhook handles inserting product/price rows into our DB on
  * `product.created`/`price.created` events. This script just creates
@@ -86,16 +96,18 @@ foreach ($stripe->products->all(['limit' => 100, 'active' => true])->autoPagingI
 $sqlStamps = [];
 
 foreach ($catalog['products'] as $entry) {
-    $ref  = (string) ($entry['ref']  ?? '');
-    $name = (string) ($entry['name'] ?? '');
-    $kind = (string) ($entry['kind'] ?? 'membership');
+    $ref       = (string) ($entry['ref']        ?? '');
+    $dbRef     = (string) ($entry['db_ref']     ?? $ref);   // DB ref; defaults to Stripe ref
+    $name      = (string) ($entry['name']       ?? '');
+    $kind      = (string) ($entry['kind']       ?? 'membership');
+    $regionTag = isset($entry['region_tag']) ? (string) $entry['region_tag'] : null;
 
     if ($ref === '' || $name === '') {
         fwrite(STDERR, "Skipping malformed product entry: " . json_encode($entry) . "\n");
         continue;
     }
 
-    // Find by metadata.ref
+    // Find by metadata.ref (the Stripe-side unique ref, NOT db_ref).
     $product = null;
     foreach ($existingProducts as $p) {
         if ((string) ($p->metadata->ref ?? '') === $ref) {
@@ -114,10 +126,15 @@ foreach ($catalog['products'] as $entry) {
         echo "  = product {$ref} exists → {$product->id}\n";
     }
 
+    $regionTagSql = $regionTag !== null
+        ? ", region_tag = '" . addslashes($regionTag) . "'"
+        : ', region_tag = NULL';
+
     $sqlStamps[] = sprintf(
-        "UPDATE products SET ref = '%s', kind = '%s' WHERE stripe_product_id = '%s';",
-        $ref,
-        $kind,
+        "UPDATE products SET ref = '%s', kind = '%s'%s WHERE stripe_product_id = '%s';",
+        addslashes($dbRef),
+        addslashes($kind),
+        $regionTagSql,
         $product->id,
     );
 

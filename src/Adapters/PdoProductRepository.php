@@ -29,32 +29,9 @@ final class PdoProductRepository implements ProductRepository
 
     public function resolvePriceForCountry(string $stripePriceId, ?string $countryCode): string
     {
-        // Find the product the requested price belongs to.
-        $stmt = $this->pdo->prepare(
-            'SELECT product_id FROM prices WHERE stripe_price_id = ? LIMIT 1'
-        );
-        $stmt->execute([$stripePriceId]);
-        $productId = $stmt->fetchColumn();
-        if ($productId === false) {
-            return $stripePriceId;
-        }
-
-        // Pick the best-matching active price for that product + country.
-        // priority lower-wins; default-region (region_tag IS NULL) is fallback.
-        $stmt = $this->pdo->prepare(
-            'SELECT pr.stripe_price_id
-             FROM prices pr
-             LEFT JOIN price_regions r
-                ON r.region_tag = pr.region_tag AND r.country_code = ?
-             WHERE pr.product_id = ?
-               AND pr.active = 1
-               AND (pr.region_tag IS NULL OR r.country_code IS NOT NULL)
-             ORDER BY pr.priority ASC
-             LIMIT 1'
-        );
-        $stmt->execute([$countryCode ?? '', $productId]);
-        $resolved = $stmt->fetchColumn();
-        return $resolved !== false ? (string) $resolved : $stripePriceId;
+        // Regional routing is now at the product level (see regionTagForPrice /
+        // listMembership). For standard prices, return unchanged.
+        return $stripePriceId;
     }
 
     public function grantsDurationDays(string $stripePriceId): ?int
@@ -76,9 +53,9 @@ final class PdoProductRepository implements ProductRepository
              WHERE p.kind = 'membership'
                AND p.active = 1
                AND p.ref = ?
+               AND p.region_tag IS NULL
                AND pr.active = 1
                AND pr.`interval` = 'year'
-             ORDER BY (pr.region_tag IS NULL) DESC, pr.priority ASC
              LIMIT 1"
         );
         $stmt->execute([$tier]);
@@ -90,7 +67,7 @@ final class PdoProductRepository implements ProductRepository
     {
         $stmt = $this->pdo->prepare(
             'SELECT pr.unit_amount_cents, pr.currency, pr.`interval`, pr.grants_duration_days,
-                    p.name AS product_name
+                    p.name AS product_name, p.region_tag AS product_region_tag
              FROM prices pr
              JOIN products p ON p.id = pr.product_id
              WHERE pr.stripe_price_id = ? LIMIT 1'
@@ -106,6 +83,7 @@ final class PdoProductRepository implements ProductRepository
             'interval'             => $row['interval'] !== null ? (string) $row['interval'] : null,
             'grants_duration_days' => $row['grants_duration_days'] !== null ? (int) $row['grants_duration_days'] : null,
             'product_name'         => (string) $row['product_name'],
+            'product_region_tag'   => $row['product_region_tag'] !== null ? (string) $row['product_region_tag'] : null,
         ];
     }
 
@@ -172,42 +150,39 @@ final class PdoProductRepository implements ProductRepository
     {
         $country = $countryCode !== null ? strtoupper(trim($countryCode)) : '';
 
-        // Fetch candidate prices: defaults (region_tag IS NULL) plus any
-        // regional prices that match the country. Sort by priority so the
-        // lowest-priority match per (product, type, interval) wins.
+        // Fetch all eligible products: standard (region_tag IS NULL) are always
+        // included; regional products are included only when the country is mapped
+        // to that region_tag in price_regions.
         $stmt = $this->pdo->prepare(
-            "SELECT p.id AS product_id, p.stripe_product_id, p.name, p.ref,
+            "SELECT p.id AS product_id, p.stripe_product_id, p.name, p.ref, p.region_tag,
                     pr.stripe_price_id, pr.type, pr.interval, pr.unit_amount_cents,
-                    pr.currency, pr.region_tag, pr.grants_duration_days, pr.priority
+                    pr.currency, pr.grants_duration_days
              FROM products p
              JOIN prices pr ON pr.product_id = p.id AND pr.active = 1
              LEFT JOIN price_regions r
-                ON r.region_tag = pr.region_tag AND r.country_code = ?
+                ON r.region_tag = p.region_tag AND r.country_code = ?
              WHERE p.kind = 'membership' AND p.active = 1
-               AND (pr.region_tag IS NULL OR r.country_code IS NOT NULL)
-             ORDER BY p.id ASC, pr.priority ASC"
+               AND (p.region_tag IS NULL OR r.country_code IS NOT NULL)
+             ORDER BY p.id ASC"
         );
         $stmt->execute([$country]);
 
-        $map  = [];
-        $seen = []; // stripe_product_id => [type|interval => true]
+        // Group rows by product, then by tier ref.
+        // For each ref (tier), prefer the regional product over standard so that
+        // a regional customer sees only their discounted pricing, not both.
+        $productRows = [];   // stripe_product_id → product data
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $pid = (string) $row['stripe_product_id'];
-            if (!isset($map[$pid])) {
-                $map[$pid] = [
+            if (!isset($productRows[$pid])) {
+                $productRows[$pid] = [
                     'stripe_product_id' => $pid,
                     'name'              => $row['name'],
-                    'ref'               => $row['ref'],
+                    'ref'               => (string) ($row['ref'] ?? ''),
+                    'region_tag'        => $row['region_tag'],
                     'prices'            => [],
                 ];
-                $seen[$pid] = [];
             }
-            $key = ($row['type'] ?? '') . '|' . ($row['interval'] ?? '');
-            if (isset($seen[$pid][$key])) {
-                continue; // already picked a better-priority winner for this combo
-            }
-            $seen[$pid][$key] = true;
-            $map[$pid]['prices'][] = [
+            $productRows[$pid]['prices'][] = [
                 'stripe_price_id'      => $row['stripe_price_id'],
                 'type'                 => $row['type'],
                 'interval'             => $row['interval'],
@@ -218,6 +193,71 @@ final class PdoProductRepository implements ProductRepository
             ];
         }
 
-        return array_values($map);
+        // For each tier ref, keep the regional product if one is present;
+        // fall back to the standard product.
+        $byRef = []; // ref → chosen product data
+        foreach ($productRows as $prod) {
+            $ref = (string) ($prod['ref'] ?? '');
+            if (!isset($byRef[$ref]) || $prod['region_tag'] !== null) {
+                $byRef[$ref] = $prod;
+            }
+        }
+
+        return array_values($byRef);
+    }
+
+    public function regionTagForPrice(string $stripePriceId): ?string
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT p.region_tag
+             FROM prices pr
+             JOIN products p ON p.id = pr.product_id
+             WHERE pr.stripe_price_id = ? LIMIT 1'
+        );
+        $stmt->execute([$stripePriceId]);
+        $val = $stmt->fetchColumn();
+        return ($val !== false && $val !== null) ? (string) $val : null;
+    }
+
+    public function countryInRegion(string $countryCode, string $regionTag): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM price_regions WHERE country_code = ? AND region_tag = ? LIMIT 1'
+        );
+        $stmt->execute([strtoupper($countryCode), $regionTag]);
+        return $stmt->fetchColumn() !== false;
+    }
+
+    public function standardPriceForTierAndInterval(string $regionalPriceId): ?string
+    {
+        // Get the tier ref, type, and interval of the regional price.
+        $stmt = $this->pdo->prepare(
+            'SELECT p.ref, pr.`interval`, pr.type
+             FROM prices pr
+             JOIN products p ON p.id = pr.product_id
+             WHERE pr.stripe_price_id = ? LIMIT 1'
+        );
+        $stmt->execute([$regionalPriceId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
+
+        // Find the matching standard price (region_tag IS NULL on the product).
+        $stmt = $this->pdo->prepare(
+            "SELECT pr.stripe_price_id
+             FROM prices pr
+             JOIN products p ON p.id = pr.product_id
+             WHERE p.ref = ?
+               AND p.region_tag IS NULL
+               AND p.active = 1
+               AND pr.type = ?
+               AND (pr.`interval` <=> ?)
+               AND pr.active = 1
+             LIMIT 1"
+        );
+        $stmt->execute([$row['ref'], $row['type'], $row['interval']]);
+        $val = $stmt->fetchColumn();
+        return $val !== false ? (string) $val : null;
     }
 }

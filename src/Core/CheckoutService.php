@@ -210,6 +210,54 @@ class CheckoutService
     }
 
     /**
+     * Create an embedded-mode Checkout Session in setup mode for a regional
+     * membership price. No charge is made — the customer's card is saved as a
+     * Setup Intent so we can verify the billing country before subscribing.
+     *
+     * On return, ReturnHandler::handleRegionalVerify() checks the billing
+     * country against price_regions for the price's region_tag. Pass →
+     * subscription created; fail → payment method detached, redirect to the
+     * regional fail page.
+     *
+     * Promo codes are not applicable in setup mode (no payment to discount).
+     *
+     * @return array{clientSecret:string}
+     */
+    public function createRegionalSetupSession(
+        string  $priceId,
+        ?string $email   = null,
+        ?string $country = null,
+        ?string $name    = null,
+    ): array {
+        $tier = $this->products->tierForPrice($priceId);
+        if ($tier === null) {
+            throw new InvalidArgumentException("Price {$priceId} is not mapped to a membership tier.");
+        }
+
+        $regionTag = $this->products->regionTagForPrice($priceId);
+        if ($regionTag === null) {
+            throw new InvalidArgumentException("Price {$priceId} is not a regional price; use createSubscriptionSession.");
+        }
+
+        $params = [
+            'ui_mode'    => 'embedded',
+            'mode'       => 'setup',
+            'return_url' => $this->settings->getCheckoutReturnUrl(),
+            'metadata'   => [
+                'checkout_type' => 'regional_verify',
+                'region_tag'    => $regionTag,
+                'price_id'      => $priceId,
+                'tier'          => $tier,
+            ],
+        ];
+
+        $this->attachCustomer($params, $email, $country, $name);
+
+        $session = $this->stripe->createCheckoutSession($params);
+        return ['clientSecret' => (string) $session->client_secret];
+    }
+
+    /**
      * Create a Customer Portal session for an existing customer.
      *
      * @return array{url:string}

@@ -27,9 +27,10 @@ final class CheckoutController
      * POST /v1/checkout — body: { price_id, quantity?, email?, country?, promo_code?, gift? }
      *
      * Intent dispatch:
-     *   gift=true  (any qty>=1)            → gift session (one-time per seat, codes generated)
-     *   gift=false + recurring price       → subscription session
-     *   gift=false + one_time membership   → one-time membership session
+     *   gift=true  (any qty>=1)                   → gift session (one-time per seat, codes generated)
+     *   gift=false + regional price (region_tag)  → setup-mode session for billing verification
+     *   gift=false + recurring standard price     → subscription session
+     *   gift=false + one_time membership          → one-time membership session
      *
      * Backwards compatibility: if `gift` is omitted, qty>=2 is still treated
      * as gift intent (the legacy heuristic). New clients should send `gift`
@@ -87,14 +88,25 @@ final class CheckoutController
                 );
             } else {
                 $priceData = $this->products->findPriceData($priceId);
-                $isOneTime = $priceData !== null && $priceData['interval'] === null;
-                $result = $isOneTime
-                    ? $this->checkout->createOneTimeMembershipSession(
-                        $priceId, $emailArg, $countryArg, $promoArg, $nameArg,
-                    )
-                    : $this->checkout->createSubscriptionSession(
+                $isRegional = $priceData !== null && $priceData['product_region_tag'] !== null;
+                $isOneTime  = $priceData !== null && $priceData['interval'] === null;
+
+                if ($isRegional) {
+                    // Regional prices use setup-mode checkout for billing-country
+                    // verification before any charge is made. Promo codes don't
+                    // apply here (no payment in setup mode).
+                    $result = $this->checkout->createRegionalSetupSession(
+                        $priceId, $emailArg, $countryArg, $nameArg,
+                    );
+                } elseif ($isOneTime) {
+                    $result = $this->checkout->createOneTimeMembershipSession(
                         $priceId, $emailArg, $countryArg, $promoArg, $nameArg,
                     );
+                } else {
+                    $result = $this->checkout->createSubscriptionSession(
+                        $priceId, $emailArg, $countryArg, $promoArg, $nameArg,
+                    );
+                }
             }
         } catch (InvalidArgumentException $e) {
             return self::json($response, ['error' => $e->getMessage()], 400);
@@ -136,6 +148,13 @@ final class CheckoutController
         }
 
         $result = $this->returnHandler->handle($sessionId);
+
+        // Regional verification failure returns a redirect_url so the browser
+        // lands on the failure page (standard-pricing offer + support link).
+        if (isset($result['redirect_url']) && is_string($result['redirect_url']) && $result['redirect_url'] !== '') {
+            return $response->withStatus(302)->withHeader('Location', $result['redirect_url']);
+        }
+
         return self::json($response, $result, $result['ok'] ? 200 : 500);
     }
 

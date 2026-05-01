@@ -35,4 +35,27 @@ interface StripeGateway
      * @throws \Stripe\Exception\SignatureVerificationException on bad signature
      */
     public function constructWebhookEvent(string $payload, string $sigHeader, string $secret): object;
+
+    /** Retrieve a Setup Intent, optionally expanding nested fields. */
+    public function retrieveSetupIntent(string $setupIntentId, array $expand = []): object;
+
+    /** Retrieve a PaymentMethod object. */
+    public function retrievePaymentMethod(string $paymentMethodId): object;
+
+    /**
+     * Create a subscription for an existing customer, charging the given
+     * payment method immediately on the first billing cycle.
+     */
+    public function createSubscription(
+        string $stripeCustomerId,
+        string $priceId,
+        string $paymentMethodId,
+    ): object;
+
+    /**
+     * Detach a payment method from its customer. The PM stays in Stripe's
+     * vault but can no longer be charged. Used when a regional billing-country
+     * check fails — no charge was ever made.
+     */
+    public function detachPaymentMethod(string $paymentMethodId): void;
 }

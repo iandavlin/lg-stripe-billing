@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace LGSB\Core;
 
 use DateTimeImmutable;
+use LGSB\Contracts\SettingsStore;
+use LGSB\Domain\Repositories\AdminActionLogRepository;
 use LGSB\Domain\Repositories\GiftCodeRepository;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Domain\Repositories\SubscriptionRepository;
@@ -13,31 +15,39 @@ use LGSB\Stripe\StripeGateway;
 /**
  * Handles the synchronous return URL after Stripe Checkout.
  *
- * Two paths:
- *   subscription → provision customer + subscription + entitlement immediately
- *   payment/gift  → generate N gift codes, email to purchaser
+ * Dispatch by mode + checkout_type metadata:
+ *   subscription              → provision customer + subscription + entitlement
+ *   payment / gift            → generate N gift codes, email to purchaser
+ *   payment / membership_annual → fixed-duration entitlement (no Stripe subscription)
+ *   setup   / regional_verify → verify billing country vs price_regions;
+ *                                pass → create subscription;
+ *                                fail → detach PM, redirect to failure page
  */
 class ReturnHandler
 {
     public function __construct(
-        private readonly StripeGateway          $stripe,
-        private readonly ProductRepository      $products,
-        private readonly CustomerManager        $customers,
-        private readonly SubscriptionRepository $subscriptions,
-        private readonly EntitlementManager     $entitlements,
-        private readonly GiftCodeRepository     $giftCodes,
-        private readonly WpGiftMailer           $mailer,
-        private readonly WpSync                 $wpSync,
+        private readonly StripeGateway             $stripe,
+        private readonly ProductRepository         $products,
+        private readonly CustomerManager           $customers,
+        private readonly SubscriptionRepository    $subscriptions,
+        private readonly EntitlementManager        $entitlements,
+        private readonly GiftCodeRepository        $giftCodes,
+        private readonly WpGiftMailer              $mailer,
+        private readonly WpSync                    $wpSync,
+        private readonly SettingsStore             $settings,
+        private readonly AdminActionLogRepository  $auditLog,
     ) {}
 
     /**
-     * @return array{ok:bool,message:string,customer_id?:int,tier?:string,quantity?:int}
+     * @return array{ok:bool,message:string,customer_id?:int,tier?:string,quantity?:int,redirect_url?:string}
      */
     public function handle(string $sessionId): array
     {
         $session = $this->stripe->retrieveCheckoutSession($sessionId, [
             'subscription',
             'subscription.items.data.price',
+            'setup_intent',
+            'setup_intent.payment_method',
         ]);
 
         if (($session->status ?? '') !== 'complete') {
@@ -48,6 +58,14 @@ class ReturnHandler
         }
 
         $mode = (string) ($session->mode ?? '');
+
+        if ($mode === 'setup') {
+            $checkoutType = (string) ($session->metadata->checkout_type ?? '');
+            return match ($checkoutType) {
+                'regional_verify' => $this->handleRegionalVerify($session),
+                default           => ['ok' => false, 'message' => "Unknown setup checkout type: {$checkoutType}."],
+            };
+        }
 
         if ($mode === 'payment') {
             $checkoutType = (string) ($session->metadata->checkout_type ?? '');
@@ -63,6 +81,117 @@ class ReturnHandler
         }
 
         return $this->handleSubscription($session);
+    }
+
+    /**
+     * Regional billing-country verification (setup mode).
+     *
+     * Retrieves the saved payment method from the completed Setup Intent,
+     * reads its billing country, and checks it against price_regions for
+     * the price's region_tag.
+     *
+     * Pass → create subscription immediately using the saved PM.
+     * Fail → detach the PM (no charge ever made), return redirect_url so the
+     *         controller can send the browser to the failure page.
+     */
+    private function handleRegionalVerify(object $session): array
+    {
+        $meta      = $session->metadata;
+        $regionTag = (string) ($meta->region_tag ?? '');
+        $priceId   = (string) ($meta->price_id ?? '');
+        $tier      = (string) ($meta->tier ?? '');
+
+        if ($regionTag === '' || $priceId === '' || $tier === '') {
+            return ['ok' => false, 'message' => 'Setup session missing required metadata.'];
+        }
+
+        // setup_intent + payment_method are expanded at retrieve time.
+        $si = $session->setup_intent;
+        if (!is_object($si)) {
+            return ['ok' => false, 'message' => 'No setup intent on session.'];
+        }
+        $pm = $si->payment_method;
+        if (!is_object($pm)) {
+            return ['ok' => false, 'message' => 'No payment method on setup intent.'];
+        }
+        $pmId           = (string) $pm->id;
+        $billingCountry = strtoupper((string) ($pm->billing_details->address->country ?? ''));
+
+        // Resolve / create customer.
+        $stripeCustomerId = (string) ($session->customer ?? '');
+        $email            = (string) ($session->customer_details->email ?? $session->customer_email ?? '');
+        $name             = trim((string) ($session->customer_details->name ?? ''));
+
+        if ($email === '') {
+            return ['ok' => false, 'message' => 'Setup session missing customer email.'];
+        }
+
+        $customer = $this->customers->findOrCreate(
+            $email,
+            $stripeCustomerId !== '' ? $stripeCustomerId : null,
+            $name ?: null,
+            $billingCountry ?: null,
+        );
+
+        // Billing-country eligibility check.
+        $eligible = $billingCountry !== ''
+            && $this->products->countryInRegion($billingCountry, $regionTag);
+
+        // Audit every attempt — success and failure.
+        $this->logVerification($customer->id, $priceId, $regionTag, $billingCountry, $eligible);
+
+        if (!$eligible) {
+            // Detach the PM so it can't be charged; no money was ever moved.
+            $this->stripe->detachPaymentMethod($pmId);
+
+            $standardPriceId = $this->products->standardPriceForTierAndInterval($priceId);
+            $failBase        = $this->settings->getRegionalFailUrl();
+            $sep             = str_contains($failBase, '?') ? '&' : '?';
+            $failUrl         = $failBase . $sep . http_build_query(array_filter([
+                'reason'            => 'region_mismatch',
+                'region_tag'        => $regionTag,
+                'billing_country'   => $billingCountry,
+                'standard_price_id' => $standardPriceId,
+            ]));
+
+            return [
+                'ok'           => false,
+                'message'      => "Billing country {$billingCountry} is not eligible for {$regionTag} pricing.",
+                'redirect_url' => $failUrl,
+            ];
+        }
+
+        // Pass: create the subscription using the verified PM.
+        if ($customer->stripeCustomerId === null) {
+            return ['ok' => false, 'message' => 'Customer has no Stripe ID after setup session.'];
+        }
+
+        $stripeSub = $this->stripe->createSubscription(
+            $customer->stripeCustomerId,
+            $priceId,
+            $pmId,
+        );
+
+        $sub = $this->subscriptions->upsert(
+            $customer->id,
+            (string) $stripeSub->id,
+            $priceId,
+            (string) ($stripeSub->status ?? ''),
+            (bool) ($stripeSub->cancel_at_period_end ?? false),
+            self::tsToDate($stripeSub->current_period_start ?? null),
+            self::tsToDate($stripeSub->current_period_end ?? null),
+            self::tsToDate($stripeSub->canceled_at ?? null),
+        );
+
+        $this->entitlements->grantMembershipFromSubscription($customer->id, $tier, $sub->id);
+        $this->wpSync->trigger($customer->id);
+
+        return [
+            'ok'          => true,
+            'message'     => "Regional subscription provisioned for {$customer->email} → {$tier}",
+            'customer_id' => $customer->id,
+            'tier'        => $tier,
+        ];
     }
 
     /**
@@ -206,6 +335,28 @@ class ReturnHandler
             'tier'        => $tier,
             'quantity'    => $quantity,
         ];
+    }
+
+    private function logVerification(
+        int    $customerId,
+        string $priceId,
+        string $regionTag,
+        string $billingCountry,
+        bool   $passed,
+    ): void {
+        try {
+            $reason = "billing_country={$billingCountry} region_tag={$regionTag}";
+            $this->auditLog->log(
+                $customerId,
+                'regional_verify',
+                $priceId,
+                $reason,
+                $passed,
+                $passed ? null : "Country {$billingCountry} not in {$regionTag}",
+            );
+        } catch (\Throwable) {
+            // Audit failure must never block the main flow.
+        }
     }
 
     private static function tsToDate(mixed $ts): ?DateTimeImmutable

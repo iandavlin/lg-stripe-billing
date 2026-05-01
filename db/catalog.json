@@ -3,7 +3,9 @@
     "purpose": "Authoritative catalog of Stripe products and prices for the membership system. Use `bin/stripe-import-catalog.php db/catalog.json` to apply to whichever Stripe mode the configured STRIPE_SECRET_KEY targets (test or live).",
     "bulk_gift_discount_tiers": "Bulk gift discounts are env-driven, not in Stripe. Set BULK_DISCOUNT_TIERS in .env: '10:10,20:20,50:30' (qty:pct).",
     "patreon_migration_coupon": "Create a Stripe Coupon `patreon_migration` (5% off, ~90 day expiry) and a Promotion Code `PATREON5` referencing it. Apply via session `discounts` (auto) or `allow_promotion_codes: true` (manual).",
-    "tier_naming": "ref values 'looth2'/'looth3' are internal tier slugs. The product name is what customers see."
+    "tier_naming": "ref values 'looth2'/'looth3' are internal tier slugs. The product name is what customers see.",
+    "regional_tiers": "Regional products use distinct Stripe metadata refs (looth2_reg_a, etc.) but map to the same DB ref (looth2/looth3) via the SQL stamp output. region_tag on products drives country eligibility checks. Gifts always use standard products — no regional prices on gift purchases.",
+    "regional_sql_stamps": "After running the importer, the printed SQL stamps include SET region_tag = ... for regional products. Run those before populating price_regions."
   },
   "products": [
     {
@@ -35,6 +37,52 @@
       ]
     },
     {
+      "ref": "looth2_reg_a",
+      "db_ref": "looth2",
+      "name": "Looth LITE — Regional A",
+      "kind": "membership",
+      "region_tag": "regional_a",
+      "prices": [
+        {
+          "key": "lite_reg_a_monthly_sub",
+          "type": "recurring",
+          "interval": "month",
+          "unit_amount_cents": 400,
+          "currency": "usd"
+        },
+        {
+          "key": "lite_reg_a_yearly_sub",
+          "type": "recurring",
+          "interval": "year",
+          "unit_amount_cents": 3000,
+          "currency": "usd"
+        }
+      ]
+    },
+    {
+      "ref": "looth2_reg_b",
+      "db_ref": "looth2",
+      "name": "Looth LITE — Regional B",
+      "kind": "membership",
+      "region_tag": "regional_b",
+      "prices": [
+        {
+          "key": "lite_reg_b_monthly_sub",
+          "type": "recurring",
+          "interval": "month",
+          "unit_amount_cents": 300,
+          "currency": "usd"
+        },
+        {
+          "key": "lite_reg_b_yearly_sub",
+          "type": "recurring",
+          "interval": "year",
+          "unit_amount_cents": 2000,
+          "currency": "usd"
+        }
+      ]
+    },
+    {
       "ref": "looth3",
       "name": "Looth PRO",
       "kind": "membership",
@@ -59,6 +107,52 @@
           "unit_amount_cents": 14500,
           "currency": "usd",
           "grants_duration_days": 365
+        }
+      ]
+    },
+    {
+      "ref": "looth3_reg_a",
+      "db_ref": "looth3",
+      "name": "Looth PRO — Regional A",
+      "kind": "membership",
+      "region_tag": "regional_a",
+      "prices": [
+        {
+          "key": "pro_reg_a_monthly_sub",
+          "type": "recurring",
+          "interval": "month",
+          "unit_amount_cents": 800,
+          "currency": "usd"
+        },
+        {
+          "key": "pro_reg_a_yearly_sub",
+          "type": "recurring",
+          "interval": "year",
+          "unit_amount_cents": 6500,
+          "currency": "usd"
+        }
+      ]
+    },
+    {
+      "ref": "looth3_reg_b",
+      "db_ref": "looth3",
+      "name": "Looth PRO — Regional B",
+      "kind": "membership",
+      "region_tag": "regional_b",
+      "prices": [
+        {
+          "key": "pro_reg_b_monthly_sub",
+          "type": "recurring",
+          "interval": "month",
+          "unit_amount_cents": 600,
+          "currency": "usd"
+        },
+        {
+          "key": "pro_reg_b_yearly_sub",
+          "type": "recurring",
+          "interval": "year",
+          "unit_amount_cents": 4000,
+          "currency": "usd"
         }
       ]
     }
