@@ -9,12 +9,12 @@
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
   body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-         max-width: 760px; margin: 2em auto; padding: 0 1.2em; }
+         max-width: 880px; margin: 2em auto; padding: 0 1.2em; }
   h1 { font-size: 20px; margin-bottom: .1em; }
   h2 { font-size: 15px; margin: 1.8em 0 .6em; padding-bottom: .3em;
        border-bottom: 1px solid #ddd; }
   .sub  { color: #777; margin-top: 0; font-size: 13px; }
-  .row  { margin: .5em 0; display: grid; grid-template-columns: 120px 1fr; gap: 8px; align-items: center; }
+  .row  { margin: .5em 0; display: grid; grid-template-columns: 140px 1fr; gap: 8px; align-items: center; }
   label { font-size: 13px; color: #555; }
   input, select { padding: 6px 8px; font-size: 14px; width: 100%; border: 1px solid #ccc; border-radius: 4px; }
   button { padding: 8px 18px; font-size: 14px; cursor: pointer; margin-top: .7em;
@@ -22,56 +22,102 @@
   button:hover { background: #4f46e0; }
   button.sec { background: #1f1d1a; }
   button.sec:hover { background: #444; }
+  button.price { margin: .3em 0; padding: 8px 14px; font-size: 13px; width: 100%;
+                 background: #f1f0ee; color: #1f1d1a; border: 1px solid #d8d6d2; }
+  button.price:hover { background: #e6e4e0; }
+  button.price strong { font-weight: 600; }
   #checkout { margin-top: 1.4em; }
   pre { background: #1a1a1a; color: #d4d4d4; padding: .8em; overflow-x: auto;
         font: 12px/1.4 "SF Mono", Consolas, monospace; margin-top: .8em;
-        border-radius: 4px; min-height: 3em; }
+        border-radius: 4px; min-height: 3em; white-space: pre-wrap; }
   .pill  { display: inline-block; background: #f1ede5; color: #1f1d1a; padding: 1px 7px;
            border-radius: 10px; font: 12px/1.4 "SF Mono", Consolas, monospace; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px;
-           font-weight: 600; margin-left: 8px; vertical-align: middle; }
-  .badge.sub  { background: #e0f2fe; color: #0369a1; }
+           font-weight: 600; vertical-align: middle; }
+  .badge.standard { background: #e0f2fe; color: #0369a1; }
+  .badge.regional_a { background: #fef3c7; color: #92400e; }
+  .badge.regional_b { background: #fce7f3; color: #9d174d; }
   .badge.gift { background: #fef3c7; color: #92400e; }
-  .discount-note { font-size: 13px; color: #059669; margin: .3em 0 0; font-weight: 500; }
   .section { border: 1px solid #e5e5e5; border-radius: 8px; padding: 1em 1.2em; margin-top: 1.4em; }
   .redeem-result { margin-top: .8em; font-size: 13px; }
   .ok  { color: #059669; }
   .err { color: #dc2626; }
+  .tier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 1em; }
+  .tier-card { border: 1px solid #ddd; border-radius: 8px; padding: 1em 1.1em; background: #fafaf9; }
+  .tier-card h3 { margin: 0 0 .3em; font-size: 16px; }
+  .tier-card .ref { font-family: "SF Mono", Consolas, monospace; font-size: 11px; color: #888; }
+  .tier-card .pricelist { margin-top: .8em; }
+  .region-banner { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46;
+                   padding: .6em .9em; border-radius: 6px; margin-top: 1em; font-size: 13px; }
+  .fail-banner   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+                   padding: 1em 1.2em; border-radius: 6px; margin-top: 1em; font-size: 14px; }
+  .fail-banner h3 { margin-top: 0; }
+  .fail-banner p  { margin: .4em 0; }
+  .return-banner { background: #f5f3ff; border: 1px solid #ddd6fe; color: #4c1d95;
+                   padding: 1em 1.2em; border-radius: 6px; margin-top: 1em; font-size: 14px; }
+  .muted { color: #777; font-size: 12px; }
 </style>
 </head>
 <body>
 
 <h1>lg-stripe-billing — test console</h1>
-<p class="sub">Dev tool. Card: <span class="pill">4242 4242 4242 4242</span> · any future expiry · any CVC · any ZIP.</p>
+<p class="sub">
+  Test card: <span class="pill">4242 4242 4242 4242</span> · any future expiry · any CVC · any ZIP.
+  <strong>Billing country in the Stripe form drives regional verification</strong> — pick your billing country there, not just here.
+</p>
 
-<!-- ── Checkout ─────────────────────────────────────────────── -->
-<h2>Checkout <span id="modeBadge" class="badge sub">subscription</span></h2>
+<!-- Failure landing (rendered when /v1/return 302's back here with ?reason=region_mismatch) -->
+<div id="failPanel" class="fail-banner" style="display:none">
+  <h3>Verification failed</h3>
+  <p id="failMessage"></p>
+  <p>You can:</p>
+  <ul>
+    <li><button class="sec" id="tryStandard" style="margin:0">Subscribe at standard pricing</button></li>
+    <li><a href="?">Try a different region (reset)</a></li>
+  </ul>
+</div>
+
+<!-- Return-from-checkout result (when ?session_id=... is in the URL) -->
+<div id="returnPanel" class="return-banner" style="display:none">
+  <h3 style="margin-top:0">Checkout return</h3>
+  <pre id="returnBody"></pre>
+</div>
+
+<!-- ── Inputs ──────────────────────────────────────────────── -->
+<h2>Setup <span id="modeBadge" class="badge standard">subscription</span></h2>
 
 <div class="row">
   <label for="email">Email</label>
   <input id="email" type="email" value="browsertest@example.com">
 </div>
 <div class="row">
-  <label for="priceId">Price ID</label>
-  <select id="priceId">
-    <option value="price_1QlXoLHg6gcIV22bj141Eoke">Looth LITE — $72/yr recurring</option>
-    <option value="price_1QlXoLHg6gcIV22baaf6atxk">Looth LITE — $72 one-time</option>
-    <option value="price_1QojnFHg6gcIV22b30t9WSKD">Looth LITE — $74.40/yr recurring</option>
+  <label for="countryOverride">Country override</label>
+  <select id="countryOverride">
+    <option value="">(auto-detect via CF-IPCountry)</option>
+    <option value="US">US — standard</option>
+    <option value="DE">DE — standard</option>
+    <option value="BR">BR — regional_a ($4 LITE / $8 PRO)</option>
+    <option value="MX">MX — regional_a</option>
+    <option value="TR">TR — regional_a</option>
+    <option value="IN">IN — regional_b ($3 LITE / $6 PRO)</option>
+    <option value="NG">NG — regional_b</option>
+    <option value="PH">PH — regional_b</option>
   </select>
 </div>
 <div class="row">
   <label for="quantity">Quantity</label>
   <input id="quantity" type="number" min="1" value="1">
 </div>
-<div class="row">
-  <label for="country">Country</label>
-  <input id="country" type="text" placeholder="optional, e.g. IN">
-</div>
+<p class="muted">
+  Regional tiers (region_tag != null) route to Stripe Checkout in <strong>setup</strong> mode — no charge made until /v1/return verifies billing country.
+  Standard tiers go directly to subscription mode. Quantity ≥ 2 triggers gift mode (one-time payment, codes generated).
+</p>
 
-<p id="discountNote" class="discount-note" style="display:none"></p>
+<!-- ── Tier cards (rendered dynamically from /v1/products) ─── -->
+<div id="tiers" class="tier-grid"></div>
+<div id="regionBanner" class="region-banner" style="display:none"></div>
 
-<button id="startCheckout">Start Checkout</button>
-
+<!-- ── Stripe Checkout mount + log ─────────────────────────── -->
 <div id="checkout"></div>
 <pre id="checkoutLog">log:
 </pre>
@@ -96,63 +142,141 @@
 </div>
 
 <script>
-// ── Discount tiers (must match BULK_DISCOUNT_TIERS env) ──────
-const TIERS = [
-  { min: 50, pct: 30 },
-  { min: 20, pct: 20 },
-  { min: 10, pct: 10 },
-];
+const $ = (id) => document.getElementById(id);
+const log = (m) => { const el = $('checkoutLog'); el.textContent += m + '\n'; el.scrollTop = el.scrollHeight; };
 
-function discountPct(qty) {
-  for (const t of TIERS) {
-    if (qty >= t.min) return t.pct;
+// ── URL state: failure-redirect from /v1/return, or post-checkout return ─
+(function handleUrlState() {
+  const p = new URLSearchParams(location.search);
+
+  if (p.get('reason') === 'region_mismatch') {
+    const fp = $('failPanel');
+    fp.style.display = '';
+    const region = p.get('region_tag') || '?';
+    const country = p.get('billing_country') || '?';
+    $('failMessage').textContent =
+      `Billing country ${country} is not eligible for ${region} pricing. ` +
+      `Either subscribe at standard pricing, contact support, or use a card billed to a country in the ${region} list.`;
+    const stdPriceId = p.get('standard_price_id');
+    const tryBtn = $('tryStandard');
+    if (stdPriceId) {
+      tryBtn.dataset.priceId = stdPriceId;
+      tryBtn.addEventListener('click', () => startCheckoutWithPriceId(stdPriceId));
+    } else {
+      tryBtn.style.display = 'none';
+    }
   }
-  return 0;
-}
 
-// ── Mode badge + discount note ───────────────────────────────
-const qtyEl   = document.getElementById('quantity');
-const badge   = document.getElementById('modeBadge');
-const note    = document.getElementById('discountNote');
+  // When Stripe Checkout completes, the browser navigates the top window
+  // to APP_BASE_URL/v1/return?session_id=... — that's a different page.
+  // But if our return handler 302's back here, ?session_id=... travels along
+  // with the other params on a fail; on a success it stays on /v1/return JSON.
+  // We don't fetch /v1/return again here (the server has already processed it
+  // in the redirect chain — re-fetching would double-process).
+})();
 
-function updateMode() {
-  const qty = parseInt(qtyEl.value, 10) || 1;
-  const isGift = qty >= 2;
-  badge.textContent = isGift ? 'gift' : 'subscription';
-  badge.className   = 'badge ' + (isGift ? 'gift' : 'sub');
+// ── Mode badge ──────────────────────────────────────────────────────────
+const TIERS = [{ min: 50, pct: 30 }, { min: 20, pct: 20 }, { min: 10, pct: 10 }];
+const discountPct = (qty) => { for (const t of TIERS) if (qty >= t.min) return t.pct; return 0; };
 
-  const pct = discountPct(qty);
-  if (isGift && pct > 0) {
-    note.textContent = `${pct}% bulk discount applied (${qty} seats)`;
-    note.style.display = '';
-  } else if (isGift) {
-    note.textContent = `Gift mode — ${qty} codes generated on completion`;
-    note.style.display = '';
+function updateModeBadge() {
+  const qty = parseInt($('quantity').value, 10) || 1;
+  const badge = $('modeBadge');
+  if (qty >= 2) {
+    badge.textContent = `gift (${qty} seats${discountPct(qty) ? ', ' + discountPct(qty) + '% off' : ''})`;
+    badge.className = 'badge gift';
   } else {
-    note.style.display = 'none';
+    badge.textContent = 'single subscription';
+    badge.className = 'badge standard';
   }
 }
-qtyEl.addEventListener('input', updateMode);
-updateMode();
 
-// ── Checkout ─────────────────────────────────────────────────
-const checkoutLog = (m) => {
-  const el = document.getElementById('checkoutLog');
-  el.textContent += m + '\n';
-  el.scrollTop = el.scrollHeight;
-};
+// ── Render tier cards from /v1/products response ────────────────────────
+function renderTiers(products) {
+  const grid = $('tiers');
+  grid.innerHTML = '';
+  if (!products.length) {
+    grid.innerHTML = '<p class="muted">No products returned.</p>';
+    return;
+  }
 
-document.getElementById('startCheckout').addEventListener('click', async () => {
+  let detectedRegion = null;
+  for (const p of products) {
+    if (p.region_tag) detectedRegion = p.region_tag;
+
+    const card = document.createElement('div');
+    card.className = 'tier-card';
+    const tagClass = p.region_tag || 'standard';
+    const tagLabel = p.region_tag || 'standard';
+    card.innerHTML =
+      `<h3>${escapeHtml(p.name)} <span class="badge ${tagClass}">${tagLabel}</span></h3>` +
+      `<div class="ref">ref=${escapeHtml(p.ref || '')} · ${escapeHtml(p.stripe_product_id)}</div>` +
+      `<div class="pricelist"></div>`;
+    const pricelist = card.querySelector('.pricelist');
+
+    for (const pr of p.prices) {
+      const dollars = (pr.unit_amount_cents / 100).toFixed(2);
+      const intervalLabel = pr.interval
+        ? ('/' + pr.interval)
+        : (' one-time' + (pr.grants_duration_days ? ' (' + pr.grants_duration_days + 'd)' : ''));
+      const flow = pr.region_tag
+        ? '<span class="muted"> → setup verify</span>'
+        : (pr.interval ? '<span class="muted"> → subscription</span>' : '<span class="muted"> → payment</span>');
+
+      const btn = document.createElement('button');
+      btn.className = 'price';
+      btn.innerHTML = `<strong>$${dollars}</strong> ${escapeHtml(pr.currency.toUpperCase())} ${escapeHtml(intervalLabel)}${flow}`;
+      btn.dataset.priceId = pr.stripe_price_id;
+      btn.addEventListener('click', () => startCheckoutWithPriceId(pr.stripe_price_id));
+      pricelist.appendChild(btn);
+    }
+
+    grid.appendChild(card);
+  }
+
+  const banner = $('regionBanner');
+  if (detectedRegion) {
+    banner.style.display = '';
+    banner.innerHTML =
+      `Regional pricing applied (<strong>${detectedRegion}</strong>) — clicking any price routes to Stripe in <strong>setup</strong> mode for billing-country verification.`;
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── Fetch products on load and whenever country override changes ────────
+async function refreshProducts() {
+  const country = $('countryOverride').value.trim();
+  const url = '/billing/v1/products' + (country ? '?country=' + encodeURIComponent(country) : '');
+  log('→ GET ' + url);
   try {
-    const email    = document.getElementById('email').value.trim();
-    const priceId  = document.getElementById('priceId').value;
-    const quantity = parseInt(qtyEl.value, 10) || 1;
-    const country  = document.getElementById('country').value.trim();
+    const r = await fetch(url);
+    const d = await r.json();
+    log('✓ ' + (d.products || []).length + ' products');
+    renderTiers(d.products || []);
+  } catch (err) {
+    log('✗ ' + err.message);
+  }
+}
 
-    const body = { price_id: priceId, email, quantity };
-    if (country) body.country = country;
+// ── Click a price → POST /v1/checkout → mount embedded checkout ─────────
+async function startCheckoutWithPriceId(priceId) {
+  const email   = $('email').value.trim();
+  const country = $('countryOverride').value.trim();
+  const qty     = parseInt($('quantity').value, 10) || 1;
 
-    checkoutLog('→ POST /billing/v1/checkout ' + JSON.stringify(body));
+  // Forward override to backend so /v1/checkout sees the same country
+  // we used for /v1/products. In production this is auto-set from
+  // CF-IPCountry; here we mirror the override for explicit testing.
+  const body = { price_id: priceId, email, quantity: qty };
+  if (country) body.country = country;
+
+  log('→ POST /billing/v1/checkout ' + JSON.stringify(body));
+  try {
     const sessRes  = await fetch('/billing/v1/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -160,33 +284,40 @@ document.getElementById('startCheckout').addEventListener('click', async () => {
     });
     const sessData = await sessRes.json();
     if (!sessData.clientSecret) {
-      checkoutLog('✗ ' + JSON.stringify(sessData));
+      log('✗ ' + JSON.stringify(sessData));
       return;
     }
-    checkoutLog('✓ clientSecret received');
+    log('✓ clientSecret prefix: ' + sessData.clientSecret.substring(0, 12));
 
     const cfg = await (await fetch('/billing/v1/config')).json();
-    if (!cfg.publishableKey) { checkoutLog('✗ no publishableKey'); return; }
+    if (!cfg.publishableKey) { log('✗ no publishableKey'); return; }
 
     const stripe   = Stripe(cfg.publishableKey);
     const checkout = await stripe.initEmbeddedCheckout({ clientSecret: sessData.clientSecret });
     checkout.mount('#checkout');
-    checkoutLog('✓ checkout mounted — complete the form to test /v1/return');
+    log('✓ checkout mounted — complete the form to test /v1/return');
   } catch (err) {
-    checkoutLog('✗ ' + err.message);
+    log('✗ ' + err.message);
   }
-});
+}
 
-// ── Redeem ───────────────────────────────────────────────────
-document.getElementById('startRedeem').addEventListener('click', async () => {
-  const resultEl = document.getElementById('redeemResult');
+// ── Event listeners + boot ──────────────────────────────────────────────
+$('countryOverride').addEventListener('change', refreshProducts);
+$('quantity').addEventListener('input', updateModeBadge);
+
+updateModeBadge();
+refreshProducts();
+
+// ── Redeem (unchanged) ──────────────────────────────────────────────────
+$('startRedeem').addEventListener('click', async () => {
+  const resultEl = $('redeemResult');
   resultEl.textContent = 'Redeeming…';
   resultEl.className   = 'redeem-result';
 
   const body = {
-    code:  document.getElementById('redeemCode').value.trim().toUpperCase(),
-    email: document.getElementById('redeemEmail').value.trim(),
-    name:  document.getElementById('redeemName').value.trim(),
+    code:  $('redeemCode').value.trim().toUpperCase(),
+    email: $('redeemEmail').value.trim(),
+    name:  $('redeemName').value.trim(),
   };
 
   try {
