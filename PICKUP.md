@@ -1,6 +1,91 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-04-29 (session 5)*
+*Last worked: 2026-05-01 (session 6)*
+
+## NEXT — Setup Intent verification flow for regional-tier subscriptions
+
+The big build for next session. We landed on the design but did not implement.
+
+**Goal:** prevent VPN/IP arbitrage of regional pricing without eating Stripe's non-refundable fees on rejected fraud. Use Stripe Setup Intents to verify billing-country eligibility BEFORE charging.
+
+**Flow:**
+- Standard-tier subscriptions keep the current direct-subscribe Checkout flow (no change)
+- Regional-tier subscriptions (price has `region_tag`) use Checkout in `mode: 'setup'` first:
+  1. Customer enters card on Stripe; we get the saved payment method back, no charge made yet
+  2. `/v1/return` retrieves the payment method, reads billing country, looks up `price_regions` for that `region_tag`
+  3. **Pass:** create subscription via Stripe API using the saved PM. First charge happens. Customer sees normal "you're in" page.
+  4. **Fail:** archive the payment method (no charge ever happened), redirect to a failure page that lets the customer either (a) subscribe at standard pricing or (b) contact support.
+- Every verification attempt logged to `admin_action_log` (success and failure) for audit.
+
+**Schema change:** move `region_tag` to the `products` table (it currently lives on `prices`). Three-tier model: `null` = standard, `regional_a` = mid-income, `regional_b` = deeper. Six Stripe products total (LITE/PRO × 3 tiers). Migrate the price-level seed.
+
+**Pricing locked in (USD, no Adaptive Pricing FX gymnastics — we eat the lower revenue):**
+
+| | Standard | Regional A | Regional B |
+|---|---|---|---|
+| LITE monthly | $5 | $4 | $3 |
+| LITE yearly | $60 | $30 | $20 |
+| PRO monthly | $11 | $8 | $6 |
+| PRO yearly | $132 | $65 | $40 |
+
+Country bucketing in `price_regions` per starter list in `PROD-CUTOVER.md` "Regional pricing" section.
+
+**Gifts always use standard products** — no regional pricing on gift purchases (avoids arbitrage where a low-region buyer resells codes to high-region recipients).
+
+**Cleanup needed:** dev DB has a leftover seed price `price_1TS4rpHg6gcIV22bJvmKYopL` ($2/mo LITE) tagged `region_tag='low_income'` plus a `price_regions` row mapping `IN → low_income`. Remove these as part of migrating to the new product-level schema.
+
+**Files to touch (rough):**
+- `db/migrations/005_products_region_tag.sql` — add `region_tag` column to `products`
+- `src/Adapters/PdoProductRepository.php` + `src/Domain/Repositories/ProductRepository.php` — region filtering at the product level
+- `src/Http/Controllers/CheckoutController.php` — branch on `region_tag` to use setup-mode session
+- `src/Core/ReturnHandler.php` — verify billing country, create subscription on pass / archive PM on fail
+- `src/Adapters/LiveStripeGateway.php` — add helpers for Setup Intent retrieval + payment method lookup + subscription create from saved PM
+- New WP page or shortcode for the failure landing
+- `bin/stripe-import-catalog.php` — handle 6 products + product-level `region_tag`
+- `db/catalog.json` — add the 4 regional products + 8 prices
+- `PROD-CUTOVER.md` — schema notes + country buckets
+
+Estimated 3–4 hours of focused work.
+
+## What shipped in session 6 (this one)
+
+Everything below committed and pushed to both repos. Dev mirrors prod-bound state.
+
+**Slim (`lg-stripe-billing`):**
+- Active-sub guard on redeem (returns 409 with portal URL)
+- Customer block flag on `customers` table (migration 003) — `CheckoutController` + `RedeemController` refuse blocked customers
+- `admin_action_log` table (migration 004) — audit trail for every admin/customer self-service action
+- Stripe API version pinned to `2024-12-18.acacia` in `LiveStripeGateway`
+- Country detection on `/v1/products` via `?country=XX` or `CF-IPCountry` header → filters by `region_tag` (price-level, will be replaced by product-level next session)
+- PROD-CUTOVER.md significantly expanded
+
+**WP plugin (`lg-patreon-stripe-poller`):**
+- `[lg_refund_request]` shortcode + `/refund-request` REST endpoint + admin email with Stripe dashboard hyperlinks
+- `[lg_member_nav]` shortcode auto-discovers membership pages and renders nav with current-page highlight
+- `[lg_manage_subscription]` rebuilt as full self-service UI: cancel (immediate or period-end), switch plan (now or next renewal via Subscription Schedules)
+- Customer self-service REST: `/me/cancel-subscription`, `/me/switch-plan`
+- Admin REST: `/admin/cancel-subscription`, `/admin/block-customer`, `/admin/refund-gift-purchase`
+- `UserProfile` membership section on WP user-edit pages: subs with cancel/refund buttons (auto-block toggle on refund), gift purchases with refund-and-void, block toggle, recent admin-action audit table
+- Guardrails: 24h plan-switch cooldown, refuse switch on `past_due`, refuse 2nd schedule, auto-block-on-refund opt-in
+- AdminAlerts mailer for failures
+- Customer confirmation emails on self-cancel / self-switch (sendSelfActionEmail)
+- Stripe API version pinned to match Slim
+- Discount-code input on `[lg_join]` form (URL `?promo=` still works as fallback)
+- Brand-palette CSS pulled from Elementor kit (sage green `#87986A`, amber `#ECB351`)
+- `[lg_join]` upgraded: hero attributes (heading/subheading/bullets/popular/taglines), side-by-side tier cards with "Most popular" badge + `is-selected` state, progressive disclosure (pick plan → form panel slides in)
+- Page templates: full-width on `/lgjoin/` + `/lggift-buy/`, no-sidebar on the others
+- `[lg_refund_request]` shows eligible items (radio per item: subscription / gift purchase) with 30-day window note; settings include `lgms_refund_email`, `lgms_refund_window_days`, `lgms_plan_switch_cooldown_hours`
+
+**Dev verification:** end-to-end smoke test runs via `wp eval-file /tmp/smoke-test.php`. All guardrail and self-service tests pass. India regional price seeded for testing (will be removed next session).
+
+**Server access for next session:**
+```
+ssh -i "C:/Users/ianda/git-repos/ssh keys/ccdev_key" ccdev@54.157.13.77
+```
+
+`ianhatesguitars@gmail.com` / WP user 1824 is whitelisted for non-admin testing in `mu-plugins/dev-admin-only-login.php`.
+
+---
 
 ## State at end of session
 
