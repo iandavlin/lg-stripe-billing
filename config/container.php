@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 use LGSB\Adapters\EnvSettingsStore;
 use LGSB\Adapters\LiveStripeGateway;
+use LGSB\Adapters\PdoAdminActionLogRepository;
 use LGSB\Adapters\PdoCustomerRepository;
 use LGSB\Adapters\PdoEntitlementRepository;
 use LGSB\Adapters\PdoGiftCodeRepository;
 use LGSB\Adapters\PdoProductRepository;
 use LGSB\Adapters\PdoSubscriptionRepository;
 use LGSB\Contracts\SettingsStore;
+use LGSB\Domain\Repositories\AdminActionLogRepository;
 use LGSB\Domain\Repositories\CustomerRepository;
 use LGSB\Domain\Repositories\EntitlementRepository;
 use LGSB\Domain\Repositories\GiftCodeRepository;
@@ -70,6 +72,9 @@ return [
 
     GiftCodeRepository::class => fn (ContainerInterface $c): GiftCodeRepository =>
         new PdoGiftCodeRepository($c->get(PDO::class)),
+
+    AdminActionLogRepository::class => fn (ContainerInterface $c): AdminActionLogRepository =>
+        new PdoAdminActionLogRepository($c->get(PDO::class)),
 
     /* Core services (CheckoutService, CustomerManager, EntitlementManager,
        ReturnHandler, WpSync, WpGiftMailer, BulkPricer) and HTTP controllers
