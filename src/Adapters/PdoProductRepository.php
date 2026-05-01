@@ -168,21 +168,31 @@ final class PdoProductRepository implements ProductRepository
         ]);
     }
 
-    public function listMembership(): array
+    public function listMembership(?string $countryCode = null): array
     {
-        $stmt = $this->pdo->query(
-            "SELECT p.stripe_product_id, p.name, p.ref,
+        $country = $countryCode !== null ? strtoupper(trim($countryCode)) : '';
+
+        // Fetch candidate prices: defaults (region_tag IS NULL) plus any
+        // regional prices that match the country. Sort by priority so the
+        // lowest-priority match per (product, type, interval) wins.
+        $stmt = $this->pdo->prepare(
+            "SELECT p.id AS product_id, p.stripe_product_id, p.name, p.ref,
                     pr.stripe_price_id, pr.type, pr.interval, pr.unit_amount_cents,
-                    pr.currency, pr.region_tag, pr.grants_duration_days
+                    pr.currency, pr.region_tag, pr.grants_duration_days, pr.priority
              FROM products p
              JOIN prices pr ON pr.product_id = p.id AND pr.active = 1
+             LEFT JOIN price_regions r
+                ON r.region_tag = pr.region_tag AND r.country_code = ?
              WHERE p.kind = 'membership' AND p.active = 1
+               AND (pr.region_tag IS NULL OR r.country_code IS NOT NULL)
              ORDER BY p.id ASC, pr.priority ASC"
         );
+        $stmt->execute([$country]);
 
-        $map = [];
-        foreach ($stmt->fetchAll() as $row) {
-            $pid = $row['stripe_product_id'];
+        $map  = [];
+        $seen = []; // stripe_product_id => [type|interval => true]
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $pid = (string) $row['stripe_product_id'];
             if (!isset($map[$pid])) {
                 $map[$pid] = [
                     'stripe_product_id' => $pid,
@@ -190,7 +200,13 @@ final class PdoProductRepository implements ProductRepository
                     'ref'               => $row['ref'],
                     'prices'            => [],
                 ];
+                $seen[$pid] = [];
             }
+            $key = ($row['type'] ?? '') . '|' . ($row['interval'] ?? '');
+            if (isset($seen[$pid][$key])) {
+                continue; // already picked a better-priority winner for this combo
+            }
+            $seen[$pid][$key] = true;
             $map[$pid]['prices'][] = [
                 'stripe_price_id'      => $row['stripe_price_id'],
                 'type'                 => $row['type'],

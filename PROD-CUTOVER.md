@@ -108,6 +108,23 @@ Customer-facing self-service is on `/manage-subscription/`: change plan (now or 
 
 - [ ] Configure Cloudflare rate limiting rule on `loothgroup.com/billing/v1/redeem` (e.g. 10 req / min / IP, block above) — protects the gift code redemption endpoint from brute force. Cloudflare Pro plan covers this.
 - [ ] Optionally: Cloudflare WAF managed rules + bot fight mode on the entire `/billing/*` path.
+- [ ] Confirm Cloudflare is forwarding `CF-IPCountry` to the origin (default behavior on every CF zone) — this is what `/v1/products` uses for regional pricing detection.
+
+## Regional pricing (developing-world discount)
+
+Infrastructure is built into the catalog: `prices.region_tag` + `price_regions` table. To enable on prod:
+
+1. **Create regional Stripe prices** for each tier (e.g. a $2/month "Looth LITE — low income" alongside the standard $5/month). Same Product, additional Price.
+2. **Tag them in our DB** via `db/catalog.json` and re-run `php bin/stripe-import-catalog.php db/catalog.json`. Use a `region_tag` like `low_income` and a lower `priority` (e.g. `50`) than the default-region prices (`100`) so the regional price wins in the resolver.
+3. **Populate `price_regions`** with the country → region_tag map. SQL example:
+    ```sql
+    INSERT INTO price_regions (country_code, region_tag) VALUES
+      ('IN', 'low_income'), ('NG', 'low_income'), ('PH', 'low_income'),
+      ('BR', 'low_income'), ('ID', 'low_income'), ('VN', 'low_income'),
+      ('PK', 'low_income'), ('BD', 'low_income'), ('EG', 'low_income'),
+      ('KE', 'low_income');  -- adjust per actual policy
+    ```
+4. **Verify**: `curl 'https://loothgroup.com/billing/v1/products?country=IN'` should return the low-income prices for visitors detected from those countries; default (`region_tag: null`) prices for everyone else. The `[lg_join]` shortcode shows a "Regional pricing applied for IN" note when a regional price was returned.
 
 ## Final Verification
 

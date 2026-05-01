@@ -71,8 +71,14 @@ interface ProductRepository
     ): void;
 
     /**
-     * Return active membership products and their active prices,
-     * ordered by product id then price priority.
+     * Return active membership products and their active prices.
+     *
+     * If $countryCode is provided, regional prices that match the country
+     * (via price_regions) are included alongside default-region prices, and
+     * regional prices for OTHER countries are excluded. For each
+     * (product, type, interval) combination only the lowest-priority
+     * winning price is returned -- so a regional price with priority < 100
+     * cleanly overrides a default-region price with priority 100.
      *
      * @return list<array{
      *     stripe_product_id: string,
@@ -87,5 +93,5 @@ interface ProductRepository
      *     }>,
      * }>
      */
-    public function listMembership(): array;
+    public function listMembership(?string $countryCode = null): array;
 }
