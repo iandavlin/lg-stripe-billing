@@ -2,51 +2,57 @@
 
 *Last worked: 2026-05-01 (session 7)*
 
-## NEXT — WP plugin: `[lg_regional_fail]` shortcode
+## NEXT — `[lg_regional_fail]` shortcode + cosmetic local-currency display
 
-The Slim side of regional verification is complete. The only remaining piece is the WP failure-landing page hosted in `lg-patreon-stripe-poller`.
+The Slim regional verification flow is complete and live-tested. Two related polish items remain:
 
-**When billing-country check fails**, Slim redirects the browser to:
-```
-{APP_REGIONAL_FAIL_URL}?reason=region_mismatch&region_tag=regional_b&billing_country=XX&standard_price_id=price_xxx
-```
+1. **`[lg_regional_fail]` shortcode** in `lg-patreon-stripe-poller` to render a proper failure landing page (currently the test console handles this on dev). When verification fails, Slim 302s the browser to `APP_REGIONAL_FAIL_URL` with query params:
+   ```
+   ?reason=region_mismatch&region_tag=regional_b&billing_country=XX&issuer_country=YY&standard_price_id=price_xxx
+   ```
+   Shortcode reads `standard_price_id` and renders a "Subscribe at standard pricing" button + contact-support link. Pattern: `LgRegionalFail.php` → register in plugin bootstrap → set `APP_REGIONAL_FAIL_URL` in prod `.env` to the page slug.
 
-The WP page at `APP_REGIONAL_FAIL_URL` needs a `[lg_regional_fail]` shortcode that:
-1. Reads `standard_price_id` from `$_GET` and renders a "Subscribe at standard pricing" button (links to `[lg_join]` with that price pre-selected, or just the join page)
-2. Renders a "Contact support" link
-3. Optionally shows a friendly message: "Your billing location ({billing_country}) isn't currently eligible for the regional discount."
-
-**Files to add in `lg-patreon-stripe-poller`:**
-- New `[lg_regional_fail]` shortcode class (pattern: `LgRegionalFail.php`)
-- Register in the plugin bootstrap
-- Add WP page to PROD-CUTOVER.md checklist (already done in Slim repo)
-
-**On dev:** add `APP_REGIONAL_FAIL_URL=https://dev.loothgroup.com/<slug>/` to `.env` and create the WP page. Until then, failures redirect to `APP_HOME_URL`.
+2. **Cosmetic local-currency display** on `[lg_join]` to obscure the regional discount from looky-loos. Static FX table in WP plugin renders `≈ ₹250/mo` next to regional prices. Stripe still charges USD, customer's bank does FX. Decided against actual local-currency Stripe prices (FX revenue risk explicitly rejected). Disclaimer: "billed in USD; your bank's exchange rate applies."
 
 ---
 
 ## What shipped in session 7 (this one)
 
-Everything below committed and pushed. Dev is fully operational with all 6 products and 30 regional countries seeded.
+The full Setup Intent verification flow shipped, hardened against arbitrage (billing **and** card-issuer country must match), and end-to-end verified on dev with real Stripe test infrastructure (3DS challenges and all). All 4 cells of the test matrix passed.
 
-**Setup Intent verification flow (lg-stripe-billing):**
-- Migration 005: `products.region_tag` column; old `low_income` test data cleaned up
-- `catalog.json`: 4 new products (LITE/PRO × regional_a/regional_b) + 8 prices
-- `StripeGateway`: `retrieveSetupIntent`, `retrievePaymentMethod`, `createSubscription`, `detachPaymentMethod`
-- `ProductRepository`: `regionTagForPrice`, `countryInRegion`, `standardPriceForTierAndInterval`
-- `PdoProductRepository`: `listMembership` rewired to product-level region_tag (regional product wins over standard for same tier ref); `resolvePriceForCountry` simplified to pass-through
-- `AdminActionLogRepository` + `PdoAdminActionLogRepository`: audit every verification attempt (pass + fail) to `admin_action_log`
-- `CheckoutService.createRegionalSetupSession()`: setup-mode session with metadata
-- `ReturnHandler.handleRegionalVerify()`: full pass/fail logic — verify → subscribe or verify → detach PM → redirect
-- `CheckoutController`: regional prices routed to setup session; `redirect_url` in result → 302 on `/v1/return`
-- `SettingsStore`: `getRegionalFailUrl()` backed by `APP_REGIONAL_FAIL_URL` (falls back to `APP_HOME_URL`)
-- `stripe-import-catalog.php`: supports `db_ref` + `region_tag` fields on catalog entries
-- `PROD-CUTOVER.md`: full 3-tier regional schema, verification flow diagram, country seed SQL, `[lg_regional_fail]` page checklist entry
+### Slim (`lg-stripe-billing`)
+- **Migration 005**: `products.region_tag` column; old `low_income` test data cleaned
+- **Catalog**: 4 new products (LITE/PRO × regional_a/regional_b) + 8 prices, `db_ref`/`region_tag` support in importer
+- **StripeGateway**: `retrieveSetupIntent`, `retrievePaymentMethod`, `createSubscription`, `detachPaymentMethod`, `createCustomer`
+- **ProductRepository**: `regionTagForPrice`, `countryInRegion`, `standardPriceForTierAndInterval`; `listMembership` rewired to product-level region_tag (regional wins over standard for same ref); `resolvePriceForCountry` reduced to pass-through
+- **AdminActionLogRepository** (+ Pdo impl): audits every verification attempt to `admin_action_log` with billing + issuer countries
+- **CheckoutService.createRegionalSetupSession()**: setup-mode session with metadata. Pre-creates Stripe Customer (setup mode does NOT auto-create from `customer_email` — verified via Stripe docs)
+- **ReturnHandler.handleRegionalVerify()**: dual eligibility check (`countryInRegion` for both billing AND `pm.card.country` issuer); pass → create subscription with saved PM; fail → detach PM + 302 redirect with diagnostic query params
+- **CheckoutController**: regional prices → setup session; `redirect_url` in result → 302 on `/v1/return`
+- **SettingsStore.getRegionalFailUrl()**: env-driven, falls back to `APP_HOME_URL`
+- **`checkout-test.html`**: rebuilt as country-driven dynamic console; renders failure-landing state with `Billing address: X · Card issuer: Y · Required region: Z` from URL params
 
-**Dev verification:**
+### WP plugin (`lg-patreon-stripe-poller`)
+- **`[lg_join]` country detection**: tiered resolution — URL `?country=XX` override > Cloudflare `/cdn-cgi/trace` > `ipapi.co` fallback. Detected country forwarded to both `/v1/products` (drives which tier cards render) and `/v1/checkout` body
+- Auto-detection works on dev (after Cloudflare orange-cloud was enabled) and prod regardless of CF config thanks to ipapi fallback
+
+### Test matrix (all passed live)
+| Card | Stripe billing form | Result |
+|---|---|---|
+| `4000 0035 6000 0008` (IN) | India | ✅ PASS — sub created, $40 charged |
+| `4242 4242 4242 4242` (US) | India | ✅ FAIL (issuer mismatch) — PM detached |
+| `4000 0035 6000 0008` (IN) | United States | ✅ FAIL (billing mismatch) — PM detached |
+| `4242 4242 4242 4242` (US) | United States | ✅ FAIL (both mismatch) — PM detached |
+
+All confirmed against `admin_action_log` rows, Stripe Dashboard charge/PM/subscription state, and the failure-landing UI rendering correct diagnostic text.
+
+### Cloudflare config change
+- `dev.loothgroup.com` switched from "DNS only" (grey) to "Proxied" (orange) on Cloudflare. Means `CF-IPCountry` header now reaches Slim, `/cdn-cgi/trace` works, and we get all the WAF/rate-limit benefits for free. Apply same change to prod when cutting over (already in PROD-CUTOVER notes).
+
+### Dev verification
 - `/v1/products?country=US` → 2 standard products ✓
 - `/v1/products?country=IN` → 2 regional_b products ($3/$20 LITE, $6/$40 PRO) ✓
-- `/v1/products?country=BR` → 2 regional_a products ($4/$30 LITE, $8/$65 PRO) ✓
+- `/v1/products?country=MX` → 2 regional_a products ($4/$30 LITE, $8/$65 PRO) — auto-detected via real VPN exit ✓
 - Standard price checkout → `cs_test_b1...` (subscription mode) ✓
 - Regional price checkout → `cs_test_c1...` (setup mode) ✓
 
