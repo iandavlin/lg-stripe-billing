@@ -234,18 +234,9 @@ DB_PASSWORD=...
 
 See "NEXT" section at the top.
 
-### 2. Expiry sweep cron (WP plugin)
+### 2. ~~Expiry sweep cron (WP plugin)~~ — DONE
 
-Gift code entitlements expire (`expires_at` set on grant). The WP plugin poller needs a sweep:
-```sql
--- Find expired gift entitlements
-SELECT DISTINCT customer_id FROM entitlements
-WHERE source_type = 'gift_code'
-  AND expires_at IS NOT NULL
-  AND expires_at < NOW()
-  AND revoked_at IS NULL;
-```
-Then `revokeBySource('gift_code', id)` and fire WP sync for each customer.
+Already implemented in `EntitlementRepo::sweepExpiredGiftEntitlements()` and wired into `Tick::run()` "Pass 1.5". Verified end-to-end on dev: back-dated entitlement → ran cron tick → entitlement revoked, sync swept WP role removal. Log entry: `expiry sweep: revoked gift entitlements for customer_ids=...`.
 
 ### 3. `[lg_redeem_gift]` shortcode (WP plugin)
 
