@@ -36,6 +36,12 @@ interface StripeGateway
      */
     public function constructWebhookEvent(string $payload, string $sigHeader, string $secret): object;
 
+    /**
+     * Create a Stripe customer. Used to pre-create before setup-mode Checkout
+     * sessions so session.customer is guaranteed to be populated.
+     */
+    public function createCustomer(string $email, ?string $name = null): object;
+
     /** Retrieve a Setup Intent, optionally expanding nested fields. */
     public function retrieveSetupIntent(string $setupIntentId, array $expand = []): object;
 

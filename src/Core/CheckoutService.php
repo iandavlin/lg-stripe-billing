@@ -244,10 +244,26 @@ class CheckoutService
             throw new InvalidArgumentException("Price {$priceId} not found.");
         }
 
+        // Setup mode does NOT auto-create a Stripe customer from customer_email
+        // (only subscription/payment modes do). Without a customer, session.customer
+        // is empty after completion and we can't attach the saved PM to anything.
+        // Pre-create the Stripe customer (or reuse the linked one) so session.customer
+        // is guaranteed populated when ReturnHandler::handleRegionalVerify() runs.
+        if ($email === null || $email === '') {
+            throw new InvalidArgumentException('Email is required for regional setup checkout.');
+        }
+
+        $customer = $this->customers->findOrCreate($email, null, $name, $country);
+        if ($customer->stripeCustomerId === null) {
+            $stripeCust = $this->stripe->createCustomer($email, $name);
+            $customer   = $this->customers->findOrCreate($email, (string) $stripeCust->id, $name, $country);
+        }
+
         $params = [
             'ui_mode'    => 'embedded',
             'mode'       => 'setup',
             'currency'   => $priceData['currency'],
+            'customer'   => $customer->stripeCustomerId,
             'return_url' => $this->settings->getCheckoutReturnUrl(),
             'metadata'   => [
                 'checkout_type' => 'regional_verify',
@@ -256,8 +272,6 @@ class CheckoutService
                 'tier'          => $tier,
             ],
         ];
-
-        $this->attachCustomer($params, $email, $country, $name);
 
         $session = $this->stripe->createCheckoutSession($params);
         return ['clientSecret' => (string) $session->client_secret];

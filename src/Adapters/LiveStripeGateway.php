@@ -79,6 +79,15 @@ final class LiveStripeGateway implements StripeGateway
         return (string) $data[0]->id;
     }
 
+    public function createCustomer(string $email, ?string $name = null): object
+    {
+        $params = ['email' => $email];
+        if ($name !== null && $name !== '') {
+            $params['name'] = $name;
+        }
+        return $this->stripe->customers->create($params);
+    }
+
     public function retrieveSetupIntent(string $setupIntentId, array $expand = []): object
     {
         $params = $expand !== [] ? ['expand' => $expand] : [];
