@@ -152,11 +152,19 @@ const log = (m) => { const el = $('checkoutLog'); el.textContent += m + '\n'; el
   if (p.get('reason') === 'region_mismatch') {
     const fp = $('failPanel');
     fp.style.display = '';
-    const region = p.get('region_tag') || '?';
-    const country = p.get('billing_country') || '?';
-    $('failMessage').textContent =
-      `Billing country ${country} is not eligible for ${region} pricing. ` +
-      `Either subscribe at standard pricing, contact support, or use a card billed to a country in the ${region} list.`;
+    const region  = p.get('region_tag')      || '?';
+    const billing = p.get('billing_country') || '?';
+    const issuer  = p.get('issuer_country')  || '?';
+    // Two independent checks can fail. Be specific about which one tripped.
+    let detail;
+    if (billing !== '?' && issuer !== '?') {
+      detail = `Billing address: ${billing} · Card issuer: ${issuer} · Required region: ${region}. Both billing address and card-issuer country must be in the ${region} list. ` +
+               `Either subscribe at standard pricing, contact support, or use a card issued by — and billed to — a country in the ${region} list.`;
+    } else {
+      detail = `Billing country ${billing} is not eligible for ${region} pricing. ` +
+               `Either subscribe at standard pricing, contact support, or use a card billed to a country in the ${region} list.`;
+    }
+    $('failMessage').textContent = detail;
     const stdPriceId = p.get('standard_price_id');
     const tryBtn = $('tryStandard');
     if (stdPriceId) {
