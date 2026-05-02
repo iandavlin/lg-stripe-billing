@@ -41,7 +41,7 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 - [ ] `LGMS_SYNC_URL=https://loothgroup.com/wp-json/lg-member-sync/v1/sync-customer`
 - [ ] `LGMS_GIFT_MAIL_URL=https://loothgroup.com/wp-json/lg-member-sync/v1/send-gift-codes`
 - [ ] `LGMS_SHARED_SECRET` — generate fresh secret, match in WP plugin settings
-- [ ] `BULK_DISCOUNT_TIERS` — confirm tiers with Ian before go-live
+- [ ] `BULK_DISCOUNT_TIERS` — confirm tiers with Ian before go-live (dev currently `5:5,10:10,20:20,50:30`)
 - [ ] `APP_REGIONAL_FAIL_URL` — URL of the WP page hosting `[lg_regional_fail]` (falls back to `APP_HOME_URL` if unset). Default plugin slug: `https://loothgroup.com/regional-pricing-not-available/`
 - [ ] `APP_RETURN_SUCCESS_URL` — URL of the WP page hosting `[lg_subscription_success]` (falls back to `APP_HOME_URL` if unset). Default plugin slug: `https://loothgroup.com/welcome/`
 - [ ] `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` — prod DB
