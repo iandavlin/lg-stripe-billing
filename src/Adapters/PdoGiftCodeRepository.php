@@ -12,10 +12,17 @@ use RuntimeException;
 
 final class PdoGiftCodeRepository implements GiftCodeRepository
 {
-    // Unambiguous uppercase alphabet: no 0/O, 1/I/L
     private const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
     public function __construct(private readonly PDO $pdo) {}
+
+    public function findById(int $id): ?GiftCode
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM gift_codes WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row !== false ? self::toDto($row) : null;
+    }
 
     public function findByCode(string $code): ?GiftCode
     {
@@ -34,7 +41,6 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
         ?array $recipients = null,
     ): array {
         $codes = $this->generateUniqueCodes($count);
-
         $placeholders = implode(', ', array_fill(0, $count, '(?, ?, ?, ?, ?, ?, ?, ?)'));
         $stmt = $this->pdo->prepare(
             "INSERT INTO gift_codes
@@ -42,7 +48,6 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
                   recipient_email, recipient_name, gift_message)
              VALUES {$placeholders}"
         );
-
         $params = [];
         foreach ($codes as $i => $code) {
             $r = $recipients[$i] ?? null;
@@ -56,13 +61,10 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
             $params[] = self::nonEmpty($r['message'] ?? null);
         }
         $stmt->execute($params);
-
-        // Fetch back so we have full rows with IDs and created_at
-        $in  = implode(', ', array_fill(0, $count, '?'));
+        $in   = implode(', ', array_fill(0, $count, '?'));
         $stmt = $this->pdo->prepare("SELECT * FROM gift_codes WHERE code IN ({$in})");
         $stmt->execute($codes);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
         return array_map([self::class, 'toDto'], $rows);
     }
 
@@ -72,6 +74,43 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
             'UPDATE gift_codes SET email_sent_at = NOW() WHERE id = ? AND email_sent_at IS NULL'
         );
         $stmt->execute([$giftCodeId]);
+    }
+
+    public function stampEmailSentAt(int $giftCodeId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE gift_codes SET email_sent_at = NOW() WHERE id = ?'
+        );
+        $stmt->execute([$giftCodeId]);
+    }
+
+    public function updateRecipient(
+        int     $giftCodeId,
+        string  $recipientEmail,
+        ?string $recipientName,
+        ?string $giftMessage,
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE gift_codes
+             SET recipient_email = ?, recipient_name = ?, gift_message = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([
+            $recipientEmail,
+            self::nonEmpty($recipientName),
+            self::nonEmpty($giftMessage),
+            $giftCodeId,
+        ]);
+    }
+
+    public function voidById(int $giftCodeId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE gift_codes SET voided_at = NOW()
+             WHERE id = ? AND voided_at IS NULL AND redeemed_at IS NULL'
+        );
+        $stmt->execute([$giftCodeId]);
+        return $stmt->rowCount() > 0;
     }
 
     private static function nonEmpty(?string $v): ?string
@@ -122,27 +161,22 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
         return ['voided' => $voided, 'already_redeemed' => $alreadyRedeemed];
     }
 
-    /** @return string[] */
     private function generateUniqueCodes(int $count): array
     {
-        $codes   = [];
+        $codes    = [];
         $maxTries = $count * 10;
         $tries    = 0;
-
         while (count($codes) < $count && $tries++ < $maxTries) {
             $candidate = $this->randomCode();
-            // Check DB for collision
             $stmt = $this->pdo->prepare('SELECT 1 FROM gift_codes WHERE code = ? LIMIT 1');
             $stmt->execute([$candidate]);
             if ($stmt->fetchColumn() === false && !in_array($candidate, $codes, true)) {
                 $codes[] = $candidate;
             }
         }
-
         if (count($codes) < $count) {
             throw new RuntimeException('Failed to generate enough unique gift codes.');
         }
-
         return $codes;
     }
 
@@ -151,7 +185,6 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
         $bytes = random_bytes(12);
         $code  = '';
         for ($i = 0; $i < 12; $i++) {
-            // ALPHABET has 32 chars = 2^5, so % 32 on a byte is perfectly uniform
             $code .= self::ALPHABET[ord($bytes[$i]) % 32];
         }
         return $code;

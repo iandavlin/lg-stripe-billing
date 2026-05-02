@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use LGSB\Http\Controllers\CheckoutController;
 use LGSB\Http\Controllers\ConfigController;
+use LGSB\Http\Controllers\GiftActionController;
 use LGSB\Http\Controllers\HealthController;
 use LGSB\Http\Controllers\ProductsController;
 use LGSB\Http\Controllers\RedeemController;
@@ -22,5 +23,11 @@ return function (App $app): void {
         $g->get( '/return',   [CheckoutController::class, 'handleReturn']);
         $g->post('/redeem',   [RedeemController::class,   'redeem']);
         $g->post('/webhook',  [WebhookController::class,  'handle']);
+
+        // Buyer gift management (server-to-server from WP plugin, X-LGMS-Token auth)
+        $g->post('/gift-send',     [GiftActionController::class, 'send']);
+        $g->post('/gift-resend',   [GiftActionController::class, 'resend']);
+        $g->post('/gift-reassign', [GiftActionController::class, 'reassign']);
+        $g->post('/gift-void',     [GiftActionController::class, 'void']);
     });
 };
