@@ -1,14 +1,55 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-05-02 (session 9)*
+*Last worked: 2026-05-02 (session 10)*
 
-## NEXT — Tier 2 gift mgmt OR `charge.refunded` OR prod cutover
+## NEXT — Tier 2 Phase C+D, then `charge.refunded`, then prod cutover
 
 What's left in priority order:
 
-1. **Tier 2 gift management** — buyer self-service dashboard. Magic-link auth from the buyer-summary email gives access to `[lg_my_gifts]`: list of all codes purchased, redemption status per code, "resend" button per unredeemed code, "edit recipient" before redemption. Notification to the buyer when each recipient redeems. Tier 1 (this session) shipped the data model + per-recipient email pipeline; Tier 2 builds on it.
-2. **`charge.refunded` webhook** — register the event in Stripe + verify our handler revokes immediately. Currently unverified per session 6 notes.
-3. **Production cutover** — clean greenfield deploy. See full checklist in PROD-CUTOVER.md.
+1. **Tier 2 Phase C** — logged-out buyers at qty ≥ 4 get a "Create login + manage from dashboard" send-mode option. On purchase, Slim's `/v1/return` calls a new WP plugin endpoint that does `wp_insert_user()` with the looth1 role and a temp password, then sends a credentials-included variant of the dashboard email. Hooks into the existing `dashboard_mode=1` Slim path (already shipped in session 10) — only the WP-side user creation + credentials email branch is new.
+2. **Tier 2 Phase D** — wire the action buttons on `[lg_my_gifts]`: Send / Resend / Reassign / Void. Each button calls a new Slim endpoint (`/v1/gift-send`, `/v1/gift-reassign`, `/v1/gift-void`) which re-uses the existing `WpGiftMailer` send pipeline. Plus a "send batch" UI for filling multiple unsent rows at once.
+3. **Redemption notification** — when a recipient redeems, email the buyer ("Sarah just redeemed your gift!"). Fires from `GiftRedemptionService`.
+4. **`charge.refunded` webhook** — register the event in Stripe + verify our handler revokes immediately. Currently unverified per session 6 notes.
+5. **Production cutover** — clean greenfield deploy. See full checklist in PROD-CUTOVER.md.
+
+## What shipped in session 10 (this one)
+
+### Tier 2 Phase A+B — gift dashboard for logged-in buyers
+
+The setup for the full self-service gift management. Logged-in buyers now get a stripped checkout, codes attached to their account, and a dashboard at `/my-gifts/` to manage them. Phase C+D (account creation + action buttons) extend this in subsequent sessions.
+
+**WP plugin (`lg-patreon-stripe-poller`)**
+- **`looth1` role + `manage_gift_codes` capability** registered on activation. Looth2/3 + administrators inherit the cap so members who buy gifts get dashboard access without needing the looth1 role.
+- **`Pages.php` registry**: `/my-gifts/` added with `visibility=gift_buyers` (only shows in `[lg_member_nav]` when the user has at least one purchased gift code). New `currentUserHasGiftCodes()` helper with `_lgms_has_gifts` user-meta cache primed lazily on first read and stamped explicitly post-purchase.
+- **`[lg_my_gifts]`** shortcode: 3-bucket dashboard (Unsent / Sent — awaiting redemption / Redeemed). Read-only for now; action buttons stubbed (`Send`, `Resend`, `Reassign`) for Phase D.
+- **`[lg_gift]` logged-in branch**: detected at render time. Hides mode toggle, recipient repeater, and buyer-email field via `.lg-gift--logged-in` CSS. Adds a top banner: "Hi {name} — codes will land in your gift dashboard." JS sets `dashboard_mode=1` in the `/v1/checkout` body.
+- **`gift-buyer-dashboard.html.php`** email template: short "you have N gift codes ready to send" message with big amber "Open your gift dashboard →" CTA. No code values inline (those live in the dashboard).
+- **`GiftMailer::send()` accepts `$dashboardMode`** — short-circuits the per-recipient + bulk-summary paths, sends the dashboard email instead.
+- **`RestController::sendGiftCodes`** accepts `dashboard_mode` flag, forwards it to GiftMailer, and stamps `Pages::markHasGifts()` on the buyer's WP user post-send so the nav item appears immediately.
+
+**Slim (`lg-stripe-billing`)**
+- **`CheckoutController` + `CheckoutService` + `ReturnHandler`** all accept and route the new `dashboard_mode` flag. When set:
+  - Stored in Stripe session metadata as `dashboard_mode=1`.
+  - On `/v1/return`, `handleGift` redirects to `{APP_HOME_URL}/my-gifts/` instead of `/welcome/`.
+  - `WpGiftMailer` payload includes the flag so the WP plugin renders the dashboard email template.
+- **`WpGiftMailer::sendGiftCodes()` signature** gains a fourth optional `bool $dashboardMode` parameter.
+
+**Dev verification:**
+- looth1 role registered (was already present from prior config; cap added cleanly).
+- `/my-gifts/` page auto-created at id 69066, in BuddyBoss allowlist, in dev mu-plugin allowlist.
+- Caches flushed (object cache + permalinks).
+
+### What's left after this session
+- Phase C: looth1 user auto-creation for non-members at checkout (qty ≥ 4 "create login" mode).
+- Phase D: send/resend/reassign/void action buttons + Slim API endpoints.
+
+### Earlier session 9 work (still relevant)
+
+Tier 1 gift management — addressed gifts pipeline. Buyers can specify recipient name/email/optional note per code at checkout; the WP plugin sends each recipient a personalized HTML email. Migrations 006 + 007. PendingGiftRecipientsRepository for crossing the Stripe-redirect gap.
+
+CF Cache Rule for `/billing/*` + membership paths — eliminates the 404-cache surprises during page-creation cycles.
+
+CF bypass for internal Slim → WP REST calls (CURLOPT_RESOLVE → 127.0.0.1) — fixes the bot-challenge that was hanging up gift emails after CF orange-cloud went on dev.
 
 ## What shipped in session 9 (this one)
 
