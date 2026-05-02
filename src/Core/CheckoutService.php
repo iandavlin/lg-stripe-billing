@@ -154,11 +154,12 @@ class CheckoutService
     public function createGiftCheckoutSession(
         string  $priceId,
         int     $quantity,
-        ?string $email      = null,
-        ?string $country    = null,
-        ?string $promoCode  = null,
-        ?string $name       = null,
-        ?array  $recipients = null,
+        ?string $email         = null,
+        ?string $country       = null,
+        ?string $promoCode     = null,
+        ?string $name          = null,
+        ?array  $recipients    = null,
+        bool    $dashboardMode = false,
     ): array {
         if ($quantity < 1) {
             throw new InvalidArgumentException('Gift checkout requires quantity >= 1.');
@@ -218,6 +219,9 @@ class CheckoutService
         // Cheaper than a DB hit on every gift return when no recipients exist.
         if ($recipients !== null && $recipients !== []) {
             $params['metadata']['has_recipients'] = '1';
+        }
+        if ($dashboardMode) {
+            $params['metadata']['dashboard_mode'] = '1';
         }
 
         $session = $this->stripe->createCheckoutSession($params);

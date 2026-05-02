@@ -72,6 +72,14 @@ final class CheckoutController
             }
         }
 
+        // Dashboard mode flag: caller is signalling that the buyer wants to
+        // manage these codes from a self-service dashboard rather than
+        // receiving them as a code list. Triggers post-purchase redirect to
+        // /my-gifts/ and a different buyer-summary email template. Set by the
+        // [lg_gift] shortcode for logged-in buyers (Phase A+B) and later for
+        // logged-out qty>=4 "create login" mode (Phase C).
+        $dashboardMode = $isGift && !empty($body['dashboard_mode']);
+
         if ($priceId === '') {
             return self::json($response, ['error' => 'price_id is required'], 400);
         }
@@ -107,7 +115,7 @@ final class CheckoutController
         try {
             if ($isGift) {
                 $result = $this->checkout->createGiftCheckoutSession(
-                    $priceId, $quantity, $emailArg, $countryArg, $promoArg, $nameArg, $recipientsArg,
+                    $priceId, $quantity, $emailArg, $countryArg, $promoArg, $nameArg, $recipientsArg, $dashboardMode,
                 );
             } else {
                 $priceData = $this->products->findPriceData($priceId);

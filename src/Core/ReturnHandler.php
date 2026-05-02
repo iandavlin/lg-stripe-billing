@@ -365,7 +365,27 @@ class ReturnHandler
 
         // Mailer dispatches both the buyer summary AND, where recipients are
         // attached to codes, individual personalized HTML emails.
-        $this->mailer->sendGiftCodes($email, $name ?: 'Looth Member', $codes);
+        // Dashboard mode: buyer wants to manage these codes from /my-gifts/.
+        // Skip the bulk-summary email and redirect them straight to the
+        // dashboard instead of the welcome page.
+        $dashboardMode = (string) ($meta->dashboard_mode ?? '') === '1';
+
+        $this->mailer->sendGiftCodes($email, $name ?: 'Looth Member', $codes, $dashboardMode);
+
+        if ($dashboardMode) {
+            // /my-gifts/ is the dashboard slug seeded by the WP plugin.
+            $base    = rtrim($this->settings->getHomeUrl(), '/');
+            $dashUrl = $base . '/my-gifts/';
+
+            return [
+                'ok'           => true,
+                'message'      => "Generated {$quantity} gift code(s) for {$email}; redirecting to dashboard.",
+                'customer_id'  => $customer->id,
+                'tier'         => $tier,
+                'quantity'     => $quantity,
+                'redirect_url' => $dashUrl,
+            ];
+        }
 
         return [
             'ok'           => true,

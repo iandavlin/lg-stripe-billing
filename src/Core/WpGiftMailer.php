@@ -22,8 +22,16 @@ final class WpGiftMailer
         private readonly LoggerInterface $logger,
     ) {}
 
-    /** @param GiftCode[] $codes */
-    public function sendGiftCodes(string $toEmail, string $toName, array $codes): void
+    /**
+     * @param GiftCode[] $codes
+     * @param bool       $dashboardMode True when the buyer chose to manage
+     *                                  codes from /my-gifts/ instead of
+     *                                  receiving them as a code list. Routes
+     *                                  the WP plugin to use the "you have N
+     *                                  codes" buyer email template instead of
+     *                                  the bulk-summary table.
+     */
+    public function sendGiftCodes(string $toEmail, string $toName, array $codes, bool $dashboardMode = false): void
     {
         if ($codes === []) {
             return;
@@ -41,8 +49,9 @@ final class WpGiftMailer
         // bulk summary email. The WP plugin endpoint does both based on the
         // per-code recipient_email field, in one call.
         $payload = json_encode([
-            'to_email'  => $toEmail,
-            'to_name'   => $toName,
+            'to_email'       => $toEmail,
+            'to_name'        => $toName,
+            'dashboard_mode' => $dashboardMode,
             'codes'    => array_map(
                 static fn (GiftCode $c): array => [
                     'id'              => $c->id,
