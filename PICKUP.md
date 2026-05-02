@@ -1,18 +1,28 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-05-01 (session 7)*
+*Last worked: 2026-05-02 (session 8)*
 
-## NEXT — `[lg_regional_fail]` shortcode + cosmetic local-currency display
+## NEXT — `[lg_redeem_gift]` shortcode polish OR `charge.refunded` webhook OR prod cutover
 
-The Slim regional verification flow is complete and live-tested. Two related polish items remain:
+The regional verification flow is fully complete (verify, fail-landing, audit, auto-detect, FX hint). What's left in priority order:
 
-1. **`[lg_regional_fail]` shortcode** in `lg-patreon-stripe-poller` to render a proper failure landing page (currently the test console handles this on dev). When verification fails, Slim 302s the browser to `APP_REGIONAL_FAIL_URL` with query params:
-   ```
-   ?reason=region_mismatch&region_tag=regional_b&billing_country=XX&issuer_country=YY&standard_price_id=price_xxx
-   ```
-   Shortcode reads `standard_price_id` and renders a "Subscribe at standard pricing" button + contact-support link. Pattern: `LgRegionalFail.php` → register in plugin bootstrap → set `APP_REGIONAL_FAIL_URL` in prod `.env` to the page slug.
+1. **`charge.refunded` webhook confirmation** — register the event in Stripe + verify our handler revokes immediately. Currently unverified per session 6 notes.
+2. **`[lg_redeem_gift]` shortcode** — member-facing gift redemption form. Currently codes only redeemable via API.
+3. **Production cutover** — clean greenfield deploy. See full checklist in PROD-CUTOVER.md.
 
-2. **Cosmetic local-currency display** on `[lg_join]` to obscure the regional discount from looky-loos. Static FX table in WP plugin renders `≈ ₹250/mo` next to regional prices. Stripe still charges USD, customer's bank does FX. Decided against actual local-currency Stripe prices (FX revenue risk explicitly rejected). Disclaimer: "billed in USD; your bank's exchange rate applies."
+## What shipped in session 8 (this one)
+
+- **`[lg_regional_fail]` shortcode** added in `lg-patreon-stripe-poller`/src/Wp/Shortcodes.php. Reads diagnostic query params (reason, region_tag, billing_country, issuer_country, standard_price_id), renders friendly explanation naming which check tripped, two CTAs (Subscribe at standard pricing → `/lgjoin/?country=US` to bypass regional auto-detect; Contact support → mailto with `lgms_refund_email`).
+- WP page created at `/regional-pricing-not-available/` containing `[lg_member_nav][lg_regional_fail]`.
+- `APP_REGIONAL_FAIL_URL` on dev `.env` updated from the test console to the new WP page.
+- **Discovered BuddyBoss public-content allowlist gating**: pages must be added at WP Admin → BuddyBoss → Settings → General → Public Content, regardless of the `bp-enable-private-network` toggle. Fully documented in PROD-CUTOVER.md including the `wp cache flush` step (BB option is read through object cache).
+- Verified end-to-end: failure landing renders correctly with all four diagnostic query params filled in.
+
+### Lessons learned (worth a memory)
+
+- BuddyBoss enforces its public-content allowlist even with private-network mode disabled. Don't trust the surface-level toggle.
+- The `wp rewrite flush` doesn't clear the BB option cache — need `wp cache flush` too.
+- `url_to_postid()` returns 0 for many published pages even when they resolve fine through `WP_Query`. It's not a reliable indicator of routability — use it for sanity but don't lean on it for diagnosis.
 
 ---
 

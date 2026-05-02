@@ -47,7 +47,9 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 
 ## BuddyBoss Public Content Allow List
 
-If the live site has BuddyBoss "Private Network" mode enabled, the front-end pages hosting our shortcodes must be added to the **public content** list at WP Admin → BuddyBoss → Settings → General → Public Content. Otherwise non-logged-in visitors get redirected to login before they can buy.
+The front-end pages hosting our shortcodes must be added to the **public content** list at WP Admin → BuddyBoss → Settings → General → Public Content. Otherwise non-logged-in visitors get redirected to `wp-login.php?bp-auth=1&action=bpnoaccess`.
+
+**Important:** the `bp-enable-private-network` toggle being set to `0` (off) is **not** sufficient — BuddyBoss still gates pages on the public-content allowlist regardless of the private-network toggle in some Pro configurations. Always populate the allowlist for any anon-accessible page. (Discovered the hard way during session 8 — long debug session ended with object-cache also being stale; flush after edits.)
 
 Pages to add (use the final slugs you pick):
 
@@ -55,8 +57,11 @@ Pages to add (use the final slugs you pick):
 - [ ] `/gift/` (or wherever `[lg_gift]` lives)
 - [ ] `/redeem/` (or wherever `[lg_redeem_gift]` lives)
 - [ ] `/request-refund/` (or wherever `[lg_refund_request]` lives) — let anonymous users submit refund requests for unexpected charges before they remember to log in
+- [ ] `/regional-pricing-not-available/` (or wherever `[lg_regional_fail]` lives) — anon visitors will land here from the Slim 302 after a failed regional billing-country verification. Slug must match `APP_REGIONAL_FAIL_URL` in Slim `.env`.
 - [ ] Stripe return path is matched by `session_id=` query string already — no entry needed
 - ~~`/manage-subscription/`~~ — **do NOT whitelist**. The shortcode shows "Please sign in" to anonymous users, so making it public has no benefit. Keep it members-only.
+
+After editing the allowlist via WP admin, run `wp cache flush` and `wp rewrite flush` — the BB option is read through object cache and a stale read can keep an updated allowlist from taking effect.
 
 ## WordPress Plugin Settings (Settings → LG Member Sync)
 
