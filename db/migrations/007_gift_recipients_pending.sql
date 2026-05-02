@@ -14,7 +14,11 @@
 
 CREATE TABLE gift_recipients_pending (
     id                          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    stripe_checkout_session_id  VARCHAR(64)  NOT NULL,
+    -- 128 chars: newer Stripe Checkout session IDs can run >64 chars; the
+    -- legacy 64-char limit on existing tables (orders.stripe_checkout_session_id,
+    -- gift_codes.stripe_session_id) survives only because those values were
+    -- captured pre-format-change.
+    stripe_checkout_session_id  VARCHAR(128) NOT NULL,
     position                    INT UNSIGNED NOT NULL,
     recipient_email             VARCHAR(255) NULL,
     recipient_name              VARCHAR(255) NULL,
