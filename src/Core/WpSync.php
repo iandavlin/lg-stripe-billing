@@ -29,7 +29,7 @@ final class WpSync
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 3,
+            CURLOPT_TIMEOUT        => 5,
             CURLOPT_CONNECTTIMEOUT => 2,
             CURLOPT_HTTPHEADER     => [
                 'Content-Type: application/json',
@@ -37,6 +37,16 @@ final class WpSync
             ],
             CURLOPT_POSTFIELDS => json_encode(['customer_id' => $customerId]),
         ]);
+        // See WpGiftMailer::resolveToLoopback — Cloudflare's bot challenge
+        // intercepts internal server-to-server PHP-curl calls, so we pin
+        // resolution to 127.0.0.1 to hit origin nginx directly.
+        $parts = parse_url($url);
+        $host  = $parts['host'] ?? '';
+        if ($host !== '') {
+            $scheme = $parts['scheme'] ?? 'https';
+            $port   = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
+            curl_setopt($ch, CURLOPT_RESOLVE, ["{$host}:{$port}:127.0.0.1"]);
+        }
         @curl_exec($ch);
         curl_close($ch);
     }

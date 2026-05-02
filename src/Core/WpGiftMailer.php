@@ -73,7 +73,7 @@ final class WpGiftMailer
         curl_setopt_array($ch, [
             CURLOPT_POST           => true,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_TIMEOUT        => 8,
             CURLOPT_CONNECTTIMEOUT => 3,
             CURLOPT_HTTPHEADER     => [
                 'Content-Type: application/json',
@@ -81,6 +81,11 @@ final class WpGiftMailer
             ],
             CURLOPT_POSTFIELDS => $payload,
         ]);
+        // Force the internal request to origin (127.0.0.1) so it bypasses
+        // Cloudflare's bot challenge. Slim and the WP REST endpoint live on
+        // the same nginx host; the X-LGMS-Token shared secret is the actual
+        // auth here, so CF in the loop adds no security and breaks the call.
+        self::resolveToLoopback($ch, $url);
         $response = curl_exec($ch);
         $status   = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error    = curl_error($ch);
@@ -95,5 +100,24 @@ final class WpGiftMailer
                 'response'    => is_string($response) ? substr($response, 0, 500) : null,
             ]);
         }
+    }
+
+    /**
+     * Pin curl's host resolution to 127.0.0.1 for the URL's host, so we hit
+     * origin nginx directly instead of going out and back through Cloudflare.
+     * Host header stays correct (so nginx vhost routing still works), DNS is
+     * just bypassed. Both Slim and the WP plugin live on the same host in
+     * our current and planned topology.
+     */
+    private static function resolveToLoopback(\CurlHandle $ch, string $url): void
+    {
+        $parts = parse_url($url);
+        $host  = $parts['host'] ?? '';
+        if ($host === '') {
+            return;
+        }
+        $scheme = $parts['scheme'] ?? 'https';
+        $port   = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
+        curl_setopt($ch, CURLOPT_RESOLVE, ["{$host}:{$port}:127.0.0.1"]);
     }
 }
