@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Gift checkout with optional account</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    --lg-sage: #87986A;
+    --lg-amber: #ECB351;
+    --lg-text: #1f1d1a;
+    --lg-muted: rgba(0,0,0,0.55);
+    --lg-bg: #f7f6f1;
+    --lg-card: #ffffff;
+    --lg-border: rgba(0,0,0,0.1);
+  }
+  * { box-sizing: border-box; }
+  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--lg-text); background: var(--lg-bg); margin: 0; padding: 2em 1em; }
+  .lg-gift { max-width: 720px; margin: 0 auto; }
+
+  /* Auth strip on top of [lg_gift] */
+  .lg-authbar { display: flex; justify-content: flex-end; align-items: center; gap: .8em; padding: .5em .2em 1em; font-size: .9em; color: var(--lg-muted); }
+  .lg-authbar a { color: var(--lg-sage); text-decoration: none; font-weight: 500; }
+  .lg-authbar a:hover { text-decoration: underline; }
+  .lg-authbar__greeting { display: flex; align-items: center; gap: .5em; }
+  .lg-authbar__avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--lg-sage); color: #fff; display: flex; align-items: center; justify-content: center; font-size: .8em; font-weight: 600; }
+  .lg-authbar__badge { background: rgba(135,152,106,0.15); color: var(--lg-sage); padding: 1px 8px; border-radius: 999px; font-size: .75em; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
+
+  /* Hero */
+  .lg-gift__hero { text-align: center; margin-bottom: 1em; }
+  .lg-gift__heading { margin: 0 0 .3em; font-size: 1.7em; }
+  .lg-gift__intro { margin: 0; opacity: .85; }
+
+  /* Panel + step headings */
+  .lg-gift__panel { border: 1px solid var(--lg-border); border-radius: 10px; padding: 1.2em 1.4em; background: var(--lg-card); margin-top: 1em; }
+  .lg-gift__panel-heading { margin: 1.2em 0 .55em; font-size: 1.05em; font-weight: 600; }
+  .lg-gift__panel-heading:first-child { margin-top: 0; }
+
+  /* Mode toggle (now 3 cards instead of 2) */
+  .lg-mode { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 0.5em; }
+  @media (max-width: 720px) { .lg-mode { grid-template-columns: 1fr; } }
+  .lg-mode__opt { position: relative; display: flex; gap: .8em; padding: 1em 1.1em; border: 2px solid var(--lg-border); border-radius: 8px; cursor: pointer; transition: all .15s; background: var(--lg-card); }
+  .lg-mode__opt:hover { border-color: rgba(0,0,0,0.3); }
+  .lg-mode__opt.is-selected { border-color: var(--lg-amber); box-shadow: 0 0 0 3px rgba(236,179,81,0.18); }
+  .lg-mode__opt.is-disabled { opacity: 0.55; cursor: not-allowed; }
+  .lg-mode__opt.is-disabled:hover { border-color: var(--lg-border); }
+  .lg-mode__opt input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+  .lg-mode__icon { font-size: 1.4em; line-height: 1; flex-shrink: 0; }
+  .lg-mode__title { font-weight: 600; }
+  .lg-mode__sub { font-size: .85em; color: var(--lg-muted); margin-top: .15em; }
+  .lg-mode__lock { display: inline-block; margin-left: .4em; font-size: .8em; color: var(--lg-muted); }
+
+  /* Buyer email field */
+  .lg-field { display: block; }
+  .lg-field input[type="email"], .lg-field input[type="password"], .lg-field input[type="text"] {
+    width: 100%; padding: .65em .85em; font-size: 1em; border: 1px solid var(--lg-border); border-radius: 8px; box-sizing: border-box;
+  }
+  .lg-field small { display: block; opacity: .7; font-size: .85em; margin-top: .35em; }
+
+  /* Account create-or-login section */
+  .lg-account { margin-top: 1em; padding: 1em 1.2em; border: 1px solid var(--lg-border); border-radius: 10px; background: rgba(135,152,106,0.04); }
+  .lg-account__title { font-weight: 600; margin: 0 0 .3em; display: flex; align-items: center; gap: .5em; }
+  .lg-account__sub { margin: 0 0 .8em; font-size: .9em; color: var(--lg-muted); }
+  .lg-account__row { display: flex; gap: .6em; align-items: flex-start; padding: .35em 0; cursor: pointer; }
+  .lg-account__row input[type="radio"] { margin-top: .3em; }
+  .lg-account__row label { cursor: pointer; flex: 1; }
+  .lg-account__row strong { display: block; }
+  .lg-account__row span { font-size: .9em; color: var(--lg-muted); }
+  .lg-account__form { margin-top: .6em; padding: .6em .8em; background: var(--lg-card); border: 1px solid var(--lg-border); border-radius: 6px; display: none; }
+  .lg-account__form.is-open { display: block; }
+  .lg-account__notice { margin: .5em 0 0; font-size: .85em; color: var(--lg-sage); display: none; }
+  .lg-account__notice.is-open { display: block; }
+
+  /* Already-logged-in banner */
+  .lg-loggedin { margin-top: 1em; padding: .7em 1.1em; background: rgba(135,152,106,0.1); border: 1px solid rgba(135,152,106,0.3); border-radius: 8px; font-size: .92em; display: flex; align-items: center; gap: .6em; }
+  .lg-loggedin__icon { color: var(--lg-sage); font-weight: 700; }
+
+  /* Inline sign-in form (when "I have an account" picked) */
+  .lg-signin-fields { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: .4em; }
+  .lg-signin-fields button { padding: .55em 1em; border-radius: 6px; border: 1px solid var(--lg-sage); background: var(--lg-sage); color: #fff; cursor: pointer; }
+  @media (max-width: 540px) { .lg-signin-fields { grid-template-columns: 1fr; } }
+
+  /* CTA */
+  .lg-gift__submit { display: block; width: 100%; padding: .9em 1.2em; font-size: 1.05em; font-weight: 600; cursor: pointer; background: var(--lg-amber); color: var(--lg-text); border: none; border-radius: 8px; margin-top: 1em; }
+  .lg-gift__submit:hover { filter: brightness(0.95); }
+  .lg-gift__guarantee { text-align: center; opacity: .65; font-size: .85em; margin-top: .7em; }
+
+  /* Mockup state toggle */
+  .mockup-state-toggle { position: fixed; top: 1em; right: 1em; background: white; border: 1px solid var(--lg-border); border-radius: 8px; padding: .6em .8em; box-shadow: 0 2px 6px rgba(0,0,0,0.06); font-size: .85em; max-width: 240px; }
+  .mockup-state-toggle h4 { margin: 0 0 .3em; font-size: .82em; text-transform: uppercase; letter-spacing: .04em; color: #666; }
+  .mockup-state-toggle button { display: block; width: 100%; text-align: left; padding: .35em .55em; margin: .15em 0; background: white; border: 1px solid var(--lg-border); border-radius: 4px; cursor: pointer; font-size: .85em; }
+  .mockup-state-toggle button.is-active { background: var(--lg-amber); border-color: transparent; font-weight: 600; }
+  .mockup-state-toggle hr { border: none; border-top: 1px dashed #ccc; margin: .6em 0; }
+  .mockup-context { color: var(--lg-muted); font-size: .85em; padding: 1em 1em 0; max-width: 720px; margin: 1.5em auto 0; border-top: 1px dashed var(--lg-border); }
+</style>
+</head>
+<body>
+
+<div class="mockup-state-toggle">
+  <h4>Auth state</h4>
+  <button data-auth="anon" class="is-active">Anonymous (no account)</button>
+  <button data-auth="looth1">Logged in (looth1, gift-only)</button>
+  <button data-auth="member">Logged in (member, looth2)</button>
+  <hr>
+  <h4>Send mode</h4>
+  <button data-mode="self" class="is-active">Send to me</button>
+  <button data-mode="direct">Send each directly</button>
+  <button data-mode="later">I'll decide later</button>
+</div>
+
+<div class="lg-gift">
+  <!-- Auth strip -->
+  <div class="lg-authbar" data-authbar>
+    <span data-authbar-anon>
+      Already a Looth member or have a gift account? <a href="#">Sign in</a>
+    </span>
+    <span class="lg-authbar__greeting" data-authbar-loggedin hidden>
+      <span class="lg-authbar__avatar" data-authbar-initials>IA</span>
+      <span>Hi <strong data-authbar-name>Ian</strong></span>
+      <span class="lg-authbar__badge" data-authbar-badge>Member</span>
+      <a href="#">Log out</a>
+    </span>
+  </div>
+
+  <header class="lg-gift__hero">
+    <h2 class="lg-gift__heading">Give the gift of Looth</h2>
+    <p class="lg-gift__intro">Each code grants a 1-year membership when redeemed. Codes never expire.</p>
+  </header>
+
+  <div class="lg-gift__panel">
+    <h3 class="lg-gift__panel-heading">1. Pick a tier</h3>
+    <div style="padding: .7em 1em; background: rgba(0,0,0,0.03); border-radius: 6px; color: var(--lg-muted); text-align: center; font-size: .9em;">— tier cards (omitted from this mockup; same as live page) —</div>
+
+    <h3 class="lg-gift__panel-heading">2. How many codes? <span style="font-weight:400;font-size:.85em;color:var(--lg-muted);">(qty: 10 — 10% off)</span></h3>
+    <div style="padding: .7em 1em; background: rgba(0,0,0,0.03); border-radius: 6px; color: var(--lg-muted); text-align: center; font-size: .9em;">— stepper + preset chips (omitted) —</div>
+
+    <h3 class="lg-gift__panel-heading">3. How should the codes get to recipients?</h3>
+    <div class="lg-mode">
+      <label class="lg-mode__opt is-selected" data-mode-card="self">
+        <input type="radio" name="mode" value="self" checked>
+        <div class="lg-mode__icon">📩</div>
+        <div>
+          <div class="lg-mode__title">Send to me</div>
+          <div class="lg-mode__sub">All codes go to my email. I forward them.</div>
+        </div>
+      </label>
+      <label class="lg-mode__opt" data-mode-card="direct">
+        <input type="radio" name="mode" value="direct">
+        <div class="lg-mode__icon">🎁</div>
+        <div>
+          <div class="lg-mode__title">Send each recipient</div>
+          <div class="lg-mode__sub">We email each recipient directly with your name.</div>
+        </div>
+      </label>
+      <label class="lg-mode__opt" data-mode-card="later">
+        <input type="radio" name="mode" value="later">
+        <div class="lg-mode__icon">📥</div>
+        <div>
+          <div class="lg-mode__title">I'll decide later <span class="lg-mode__lock" data-lock-icon>🔒</span></div>
+          <div class="lg-mode__sub">Codes wait in your dashboard. Send when ready.</div>
+        </div>
+      </label>
+    </div>
+
+    <!-- (Recipients repeater would render here in "direct" mode — same as today) -->
+
+    <h3 class="lg-gift__panel-heading">4. Your email</h3>
+    <div class="lg-field">
+      <input type="email" value="ian.davlin@example.com" data-buyer-email>
+      <small>We send all codes &amp; receipts here.</small>
+    </div>
+
+    <!-- Logged-in banner (replaces the account section when user is logged in) -->
+    <div class="lg-loggedin" data-loggedin-banner hidden>
+      <span class="lg-loggedin__icon">✓</span>
+      <span data-loggedin-msg>These codes will appear in your <a href="#" style="color:var(--lg-sage);font-weight:500;">gift dashboard</a> after purchase.</span>
+    </div>
+
+    <!-- Account section (only for anonymous buyers) -->
+    <div class="lg-account" data-account-section>
+      <p class="lg-account__title">📊 Want to manage these codes after purchase? <span style="font-weight:400;font-size:.85em;color:var(--lg-muted);" data-account-required-tag hidden>(required for "I'll decide later")</span></p>
+      <p class="lg-account__sub">Create a free Looth gift account so you can resend, reassign, or send remaining codes anytime — and see when each one is redeemed.</p>
+
+      <label class="lg-account__row">
+        <input type="radio" name="acct" value="none" checked data-acct-opt="none">
+        <span>
+          <strong>No thanks, just send the codes</strong>
+          <span>I don't need a dashboard. Codes go out exactly as I described above.</span>
+        </span>
+      </label>
+
+      <label class="lg-account__row">
+        <input type="radio" name="acct" value="create" data-acct-opt="create">
+        <span>
+          <strong>Create a free Looth gift account</strong>
+          <span>We'll email you a temp password right after checkout. Manage your codes anytime.</span>
+        </span>
+      </label>
+
+      <label class="lg-account__row">
+        <input type="radio" name="acct" value="signin" data-acct-opt="signin">
+        <span>
+          <strong>I already have a Looth account</strong>
+          <span>Sign in below to link these codes to your account.</span>
+        </span>
+      </label>
+
+      <div class="lg-account__form" data-acct-form-signin>
+        <p style="margin:0 0 .4em;font-size:.9em;font-weight:500;">Sign in to link these codes:</p>
+        <div class="lg-signin-fields">
+          <input type="email" placeholder="email">
+          <input type="password" placeholder="password">
+          <button type="button">Sign in</button>
+        </div>
+        <small style="display:block;margin-top:.5em;opacity:.7;">Forgot your password? <a href="#" style="color:var(--lg-sage);">Reset it</a> — we'll wait.</small>
+      </div>
+
+      <p class="lg-account__notice" data-acct-notice-create>
+        ✓ Account will be created on purchase. Login credentials sent to <strong data-acct-email-echo>ian.davlin@example.com</strong>.
+      </p>
+    </div>
+  </div>
+
+  <button class="lg-gift__submit">Continue to checkout · 10 codes · $540</button>
+  <p class="lg-gift__guarantee"><span aria-hidden="true">🎁</span> Codes never expire · billed in USD · 30-day refund window</p>
+</div>
+
+<div class="mockup-context">
+  Mockup of the new send-mode + optional-account UX on <code>[lg_gift]</code>. Toggles in the corner exercise the three auth states (anonymous, looth1 gift-only, member) and the three send modes (Send to me / Send each / I'll decide later). Notice that picking "I'll decide later" while anonymous auto-selects the "create account" radio and shows the required-tag — codes need somewhere to live, and the dashboard is account-gated. The whole "Want to manage codes?" panel disappears entirely when the user is already logged in; instead they get a small green banner confirming the codes will appear in their existing dashboard.
+</div>
+
+<script>
+const authBtns = document.querySelectorAll('.mockup-state-toggle [data-auth]');
+const modeBtns = document.querySelectorAll('.mockup-state-toggle [data-mode]');
+const authbarAnon     = document.querySelector('[data-authbar-anon]');
+const authbarLoggedin = document.querySelector('[data-authbar-loggedin]');
+const authbarName     = document.querySelector('[data-authbar-name]');
+const authbarInit     = document.querySelector('[data-authbar-initials]');
+const authbarBadge    = document.querySelector('[data-authbar-badge]');
+const accountSection  = document.querySelector('[data-account-section]');
+const loggedinBanner  = document.querySelector('[data-loggedin-banner]');
+const loggedinMsg     = document.querySelector('[data-loggedin-msg]');
+const acctRequiredTag = document.querySelector('[data-account-required-tag]');
+const acctNoticeCreate= document.querySelector('[data-acct-notice-create]');
+const acctOptions     = document.querySelectorAll('[data-acct-opt]');
+const acctSigninForm  = document.querySelector('[data-acct-form-signin]');
+const modeCards       = document.querySelectorAll('[data-mode-card]');
+const lockIcon        = document.querySelector('[data-lock-icon]');
+const acctEmailEcho   = document.querySelector('[data-acct-email-echo]');
+const buyerEmail      = document.querySelector('[data-buyer-email]');
+
+let authState = 'anon';
+let modeState = 'self';
+let acctState = 'none';
+
+function applyAuthState() {
+  if (authState === 'anon') {
+    authbarAnon.hidden = false;
+    authbarLoggedin.hidden = true;
+    accountSection.style.display = '';
+    loggedinBanner.hidden = true;
+    lockIcon.style.display = '';
+  } else {
+    authbarAnon.hidden = true;
+    authbarLoggedin.hidden = false;
+    accountSection.style.display = 'none';
+    loggedinBanner.hidden = false;
+    lockIcon.style.display = 'none';
+    if (authState === 'looth1') {
+      authbarName.textContent = 'Ian';
+      authbarInit.textContent = 'IA';
+      authbarBadge.textContent = 'Gift account';
+      authbarBadge.style.background = 'rgba(236,179,81,0.18)';
+      authbarBadge.style.color = '#92400e';
+      loggedinMsg.innerHTML = 'These codes will appear in your <a href="#" style="color:var(--lg-sage);font-weight:500;">gift dashboard</a> after purchase.';
+    } else {
+      authbarName.textContent = 'Ian';
+      authbarInit.textContent = 'IA';
+      authbarBadge.textContent = 'Looth PRO member';
+      authbarBadge.style.background = 'rgba(135,152,106,0.18)';
+      authbarBadge.style.color = '#2d4f2a';
+      loggedinMsg.innerHTML = 'You\'re a Looth PRO member — these codes will appear in your <a href="#" style="color:var(--lg-sage);font-weight:500;">gift dashboard</a> after purchase.';
+    }
+  }
+}
+
+function applyModeState() {
+  modeCards.forEach(c => c.classList.toggle('is-selected', c.dataset.modeCard === modeState));
+  if (modeState === 'later' && authState === 'anon') {
+    // Force account-create selection
+    acctState = 'create';
+    document.querySelector('[data-acct-opt="create"]').checked = true;
+    acctRequiredTag.hidden = false;
+  } else {
+    acctRequiredTag.hidden = true;
+  }
+  applyAccountState();
+}
+
+function applyAccountState() {
+  acctSigninForm.classList.toggle('is-open', acctState === 'signin');
+  acctNoticeCreate.classList.toggle('is-open', acctState === 'create');
+  acctEmailEcho.textContent = buyerEmail.value || 'your email';
+}
+
+authBtns.forEach(b => b.addEventListener('click', () => {
+  authBtns.forEach(x => x.classList.remove('is-active'));
+  b.classList.add('is-active');
+  authState = b.dataset.auth;
+  applyAuthState();
+  applyModeState();
+}));
+modeBtns.forEach(b => b.addEventListener('click', () => {
+  modeBtns.forEach(x => x.classList.remove('is-active'));
+  b.classList.add('is-active');
+  modeState = b.dataset.mode;
+  applyModeState();
+}));
+acctOptions.forEach(r => r.addEventListener('change', () => {
+  acctState = r.value;
+  applyAccountState();
+}));
+buyerEmail.addEventListener('input', applyAccountState);
+
+applyAuthState();
+applyModeState();
+</script>
+
+</body>
+</html>
