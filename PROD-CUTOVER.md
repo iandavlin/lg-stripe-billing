@@ -42,26 +42,19 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 - [ ] `LGMS_GIFT_MAIL_URL=https://loothgroup.com/wp-json/lg-member-sync/v1/send-gift-codes`
 - [ ] `LGMS_SHARED_SECRET` — generate fresh secret, match in WP plugin settings
 - [ ] `BULK_DISCOUNT_TIERS` — confirm tiers with Ian before go-live
-- [ ] `APP_REGIONAL_FAIL_URL` — URL of the WP page hosting `[lg_regional_fail]` (falls back to `APP_HOME_URL` if unset)
+- [ ] `APP_REGIONAL_FAIL_URL` — URL of the WP page hosting `[lg_regional_fail]` (falls back to `APP_HOME_URL` if unset). Default plugin slug: `https://loothgroup.com/regional-pricing-not-available/`
+- [ ] `APP_RETURN_SUCCESS_URL` — URL of the WP page hosting `[lg_subscription_success]` (falls back to `APP_HOME_URL` if unset). Default plugin slug: `https://loothgroup.com/welcome/`
 - [ ] `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` — prod DB
 
 ## BuddyBoss Public Content Allow List
 
-The front-end pages hosting our shortcodes must be added to the **public content** list at WP Admin → BuddyBoss → Settings → General → Public Content. Otherwise non-logged-in visitors get redirected to `wp-login.php?bp-auth=1&action=bpnoaccess`.
+**Plugin auto-populates this on activation** via `Pages::ensureBuddyBossAllowlist()` for every page flagged `public => true` in the `PAGES` registry. Manual edits below are now optional.
 
-**Important:** the `bp-enable-private-network` toggle being set to `0` (off) is **not** sufficient — BuddyBoss still gates pages on the public-content allowlist regardless of the private-network toggle in some Pro configurations. Always populate the allowlist for any anon-accessible page. (Discovered the hard way during session 8 — long debug session ended with object-cache also being stale; flush after edits.)
+If you do ever edit the allowlist by hand at WP Admin → BuddyBoss → Settings → General → Public Content, **always run `wp cache flush` afterward** — the BB option is read through object cache and a stale read can keep updates from taking effect. (Burned ~45 minutes on this in session 8 before tracing it.)
 
-Pages to add (use the final slugs you pick):
+**Important behavior gotcha:** the `bp-enable-private-network` toggle being set to `0` (off) is **not** sufficient — BuddyBoss still gates pages on the public-content allowlist regardless of the toggle in some Pro configurations. Always populate the allowlist for any anon-accessible page. The auto-seed handles this; this note is here for when you eventually wonder why a page redirects to `wp-login.php?bp-auth=1&action=bpnoaccess`.
 
-- [ ] `/join/` (or wherever `[lg_join]` lives)
-- [ ] `/gift/` (or wherever `[lg_gift]` lives)
-- [ ] `/redeem/` (or wherever `[lg_redeem_gift]` lives)
-- [ ] `/request-refund/` (or wherever `[lg_refund_request]` lives) — let anonymous users submit refund requests for unexpected charges before they remember to log in
-- [ ] `/regional-pricing-not-available/` (or wherever `[lg_regional_fail]` lives) — anon visitors will land here from the Slim 302 after a failed regional billing-country verification. Slug must match `APP_REGIONAL_FAIL_URL` in Slim `.env`.
-- [ ] Stripe return path is matched by `session_id=` query string already — no entry needed
-- ~~`/manage-subscription/`~~ — **do NOT whitelist**. The shortcode shows "Please sign in" to anonymous users, so making it public has no benefit. Keep it members-only.
-
-After editing the allowlist via WP admin, run `wp cache flush` and `wp rewrite flush` — the BB option is read through object cache and a stale read can keep an updated allowlist from taking effect.
+If the registry needs a new page added, edit `Pages::PAGES`, push, then click "Re-create / sync membership pages" in the LG Member Sync settings page. The seeder will both insert the page and append its slug to the allowlist.
 
 ## WordPress Plugin Settings (Settings → LG Member Sync)
 
@@ -81,18 +74,23 @@ After editing the allowlist via WP admin, run `wp cache flush` and `wp rewrite f
 
 - [ ] `wp option set lgms_redeem_url 'https://loothgroup.com/<redeem-page-slug>/'` — used by GiftMailer to build clickable code links in the gift email. Falls back to `home_url('/lggift/')` if unset, so set it explicitly to whatever final slug `[lg_redeem_gift]` lives at.
 
-## WP membership pages — create with [lg_member_nav] prepended
+## WP membership pages — auto-seeded on plugin activation
 
-The five membership pages should each start with `[lg_member_nav]` followed by the page-specific shortcode. Auto-discovered nav links between them; current page highlighted.
+**Nothing to do manually.** The plugin's `LGMS\Wp\Pages::ensureAll()` runs on activation and creates every shortcode-hosting page with the right `[lg_member_nav][shortcode]` content, the right slug, the right `_wp_page_template`, and adds public-facing slugs to the BuddyBoss public-content allowlist (see section above).
 
-- [ ] `/lgjoin/` (or chosen slug) → `[lg_member_nav][lg_join]`
-- [ ] `/lggift-buy/` (or chosen slug) → `[lg_member_nav][lg_gift]`
-- [ ] `/lggift/` (or chosen slug) → `[lg_member_nav][lg_redeem_gift]`
-- [ ] `/manage-subscription/` (or chosen slug) → `[lg_member_nav][lg_manage_subscription]`
-- [ ] `/request-refund/` (or chosen slug) → `[lg_member_nav][lg_refund_request]`
-- [ ] `/membership-not-available/` (or chosen slug) → `[lg_regional_fail]` — regional billing-country failure landing (set URL in `APP_REGIONAL_FAIL_URL`)
+If you ever need to re-sync (after editing `src/Wp/Pages.php`'s `PAGES` registry, for example), use the "Re-create / sync membership pages" button at WP Admin → Settings → LG Member Sync. Idempotent — existing pages are left alone (admins may have customized layout); only missing ones are inserted.
 
-The plugin auto-enqueues a baseline stylesheet (`assets/lg-shortcodes.css`) on any page containing one of these shortcodes — handles success/error states and form polish. Theme CSS can override.
+The seeded pages are:
+
+- `/lgjoin/` → `[lg_member_nav][lg_join]`
+- `/lggift-buy/` → `[lg_member_nav][lg_gift]`
+- `/lggift/` → `[lg_member_nav][lg_redeem_gift]`
+- `/manage-subscription/` → `[lg_member_nav][lg_manage_subscription]` (intentionally **not** in the BuddyBoss public-content allowlist — shortcode shows "Please sign in" for anon visitors)
+- `/request-refund/` → `[lg_member_nav][lg_refund_request]`
+- `/regional-pricing-not-available/` → `[lg_member_nav][lg_regional_fail]` — set `APP_REGIONAL_FAIL_URL` to this URL
+- `/welcome/` → `[lg_member_nav][lg_subscription_success]` — set `APP_RETURN_SUCCESS_URL` to this URL
+
+The plugin auto-enqueues `assets/lg-shortcodes.css` on any page containing one of these shortcodes — the tag list is derived from `Pages::PAGES`, so adding a new shortcode + page entry is the only edit needed.
 
 ## Admin tools available on user profile pages (no extra setup)
 
