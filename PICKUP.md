@@ -2,15 +2,18 @@
 
 *Last worked: 2026-05-02 (session 10)*
 
-## NEXT — Tier 2 Phase C+D, then `charge.refunded`, then prod cutover
+## NEXT — pick Phase D first (recommended) or Phase C
 
-What's left in priority order:
+Tier 2 Phase A+B shipped this session. Logged-in buyers see a stripped checkout, codes attach to their account, redirect lands at `/my-gifts/`, and the dashboard renders read-only. **Action buttons in the dashboard are non-functional stubs** (CSS class `lg-mygifts__action-soon`); the loop isn't closed yet.
 
-1. **Tier 2 Phase C** — logged-out buyers at qty ≥ 4 get a "Create login + manage from dashboard" send-mode option. On purchase, Slim's `/v1/return` calls a new WP plugin endpoint that does `wp_insert_user()` with the looth1 role and a temp password, then sends a credentials-included variant of the dashboard email. Hooks into the existing `dashboard_mode=1` Slim path (already shipped in session 10) — only the WP-side user creation + credentials email branch is new.
-2. **Tier 2 Phase D** — wire the action buttons on `[lg_my_gifts]`: Send / Resend / Reassign / Void. Each button calls a new Slim endpoint (`/v1/gift-send`, `/v1/gift-reassign`, `/v1/gift-void`) which re-uses the existing `WpGiftMailer` send pipeline. Plus a "send batch" UI for filling multiple unsent rows at once.
-3. **Redemption notification** — when a recipient redeems, email the buyer ("Sarah just redeemed your gift!"). Fires from `GiftRedemptionService`.
-4. **`charge.refunded` webhook** — register the event in Stripe + verify our handler revokes immediately. Currently unverified per session 6 notes.
-5. **Production cutover** — clean greenfield deploy. See full checklist in PROD-CUTOVER.md.
+**Recommended next: Phase D** — wire up Send / Resend / Reassign / Void on `[lg_my_gifts]`. New Slim endpoints (`/v1/gift-send`, `/v1/gift-reassign`, `/v1/gift-void`), each re-using the existing `WpGiftMailer` send pipeline. Plus a "send batch" UI for filling multiple unsent rows at once. After Phase D, members can fully manage gifts end-to-end.
+
+**Then Phase C** — opens the dashboard to non-members. Logged-out buyers at qty ≥ 4 get a "Create login + manage from dashboard" send-mode option. On purchase, Slim's `/v1/return` calls a new WP plugin endpoint that does `wp_insert_user()` with the **`customer` role** (NOT looth1 — that's reserved for lapsed members) and a temp password, then sends a credentials-included variant of the dashboard email. The `dashboard_mode=1` Slim path is already there from session 10; only the WP-side user-creation + credentials email branch is new.
+
+Then in priority order:
+1. **Redemption notification** — when a recipient redeems, email the buyer ("Sarah just redeemed your gift!"). Fires from `GiftRedemptionService`.
+2. **`charge.refunded` webhook** — register the event in Stripe + verify our handler revokes immediately. Currently unverified per session 6 notes.
+3. **Production cutover** — clean greenfield deploy. See full checklist in PROD-CUTOVER.md.
 
 ## What shipped in session 10 (this one)
 
@@ -39,9 +42,13 @@ The setup for the full self-service gift management. Logged-in buyers now get a 
 - `/my-gifts/` page auto-created at id 69066, in BuddyBoss allowlist, in dev mu-plugin allowlist.
 - Caches flushed (object cache + permalinks).
 
+### Role correction (late in session)
+- Initially used `looth1` as the auto-created role for new gift-only buyers. Wrong: `looth1` is reserved on this site for lapsed members (used by `Arbiter`, `sync-engine`, `UserProvisioner` as the cancel/fallback state).
+- Fixed: `Plugin::GIFT_ROLE = 'customer'` (legacy WooCommerce role). The `manage_gift_codes` capability is granted to `customer`, all looth tiers (so lapsed members with legacy gifts still see the dashboard), and admin. Activation method renamed `registerGiftRole` → `registerGiftCapability` since we no longer mint a role.
+
 ### What's left after this session
-- Phase C: looth1 user auto-creation for non-members at checkout (qty ≥ 4 "create login" mode).
-- Phase D: send/resend/reassign/void action buttons + Slim API endpoints.
+- Phase D (next): wire the dashboard action buttons (Send / Resend / Reassign / Void) + matching Slim API endpoints. **Recommended next.**
+- Phase C: customer-role user auto-creation for non-members at checkout (qty ≥ 4 "create login" mode). Hooks into existing dashboard_mode=1 path; only WP-side wp_insert_user + credentials email is new.
 
 ### Earlier session 9 work (still relevant)
 
