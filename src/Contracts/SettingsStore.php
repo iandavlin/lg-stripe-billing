@@ -48,4 +48,11 @@ interface SettingsStore
      */
     public function getRegionalFailUrl(): string;
 
+    /**
+     * URL of the WP page shown after a successful checkout completion.
+     * Sourced from APP_RETURN_SUCCESS_URL; falls back to getHomeUrl() if unset.
+     * The return handler appends query params: kind=subscription|gift|...&tier=...
+     */
+    public function getReturnSuccessUrl(): string;
+
 }

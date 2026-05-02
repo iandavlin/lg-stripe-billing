@@ -61,6 +61,12 @@ final class EnvSettingsStore implements SettingsStore
         return $url !== '' ? $url : $this->getHomeUrl();
     }
 
+    public function getReturnSuccessUrl(): string
+    {
+        $url = self::env('APP_RETURN_SUCCESS_URL');
+        return $url !== '' ? $url : $this->getHomeUrl();
+    }
+
     private static function env(string $key): string
     {
         $v = $_ENV[$key] ?? getenv($key);

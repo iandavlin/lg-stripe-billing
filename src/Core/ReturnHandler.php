@@ -200,10 +200,14 @@ class ReturnHandler
         $this->wpSync->trigger($customer->id);
 
         return [
-            'ok'          => true,
-            'message'     => "Regional subscription provisioned for {$customer->email} → {$tier}",
-            'customer_id' => $customer->id,
-            'tier'        => $tier,
+            'ok'           => true,
+            'message'      => "Regional subscription provisioned for {$customer->email} → {$tier}",
+            'customer_id'  => $customer->id,
+            'tier'         => $tier,
+            'redirect_url' => $this->buildSuccessUrl([
+                'kind' => 'regional_subscription',
+                'tier' => $tier,
+            ]),
         ];
     }
 
@@ -245,11 +249,16 @@ class ReturnHandler
         $this->wpSync->trigger($customer->id);
 
         return [
-            'ok'          => true,
-            'message'     => "Provisioned {$customer->email} → {$tier} for {$durationDays} days",
-            'customer_id' => $customer->id,
-            'tier'        => $tier,
-            'expires_at'  => $expiresAt->format('Y-m-d'),
+            'ok'           => true,
+            'message'      => "Provisioned {$customer->email} → {$tier} for {$durationDays} days",
+            'customer_id'  => $customer->id,
+            'tier'         => $tier,
+            'expires_at'   => $expiresAt->format('Y-m-d'),
+            'redirect_url' => $this->buildSuccessUrl([
+                'kind'       => 'membership_annual',
+                'tier'       => $tier,
+                'expires_at' => $expiresAt->format('Y-m-d'),
+            ]),
         ];
     }
 
@@ -298,10 +307,14 @@ class ReturnHandler
         $this->wpSync->trigger($customer->id);
 
         return [
-            'ok'          => true,
-            'message'     => "Provisioned {$customer->email} → {$tier}",
-            'customer_id' => $customer->id,
-            'tier'        => $tier,
+            'ok'           => true,
+            'message'      => "Provisioned {$customer->email} → {$tier}",
+            'customer_id'  => $customer->id,
+            'tier'         => $tier,
+            'redirect_url' => $this->buildSuccessUrl([
+                'kind' => 'subscription',
+                'tier' => $tier,
+            ]),
         ];
     }
 
@@ -342,11 +355,16 @@ class ReturnHandler
         $this->mailer->sendGiftCodes($email, $name ?: 'Looth Member', $codes);
 
         return [
-            'ok'          => true,
-            'message'     => "Generated {$quantity} gift code(s) for {$email}",
-            'customer_id' => $customer->id,
-            'tier'        => $tier,
-            'quantity'    => $quantity,
+            'ok'           => true,
+            'message'      => "Generated {$quantity} gift code(s) for {$email}",
+            'customer_id'  => $customer->id,
+            'tier'         => $tier,
+            'quantity'     => $quantity,
+            'redirect_url' => $this->buildSuccessUrl([
+                'kind' => 'gift',
+                'tier' => $tier,
+                'qty'  => (string) $quantity,
+            ]),
         ];
     }
 
@@ -375,6 +393,21 @@ class ReturnHandler
         } catch (\Throwable) {
             // Audit failure must never block the main flow.
         }
+    }
+
+    /**
+     * Build the success-redirect URL with query params for the WP welcome page.
+     * The page reads `kind` first to branch its messaging; the rest are
+     * kind-specific extras (tier, qty, expires_at).
+     */
+    private function buildSuccessUrl(array $params): string
+    {
+        $base = $this->settings->getReturnSuccessUrl();
+        $sep  = str_contains($base, '?') ? '&' : '?';
+        return $base . $sep . http_build_query(array_filter(
+            $params,
+            static fn ($v) => $v !== null && $v !== '',
+        ));
     }
 
     private static function tsToDate(mixed $ts): ?DateTimeImmutable
