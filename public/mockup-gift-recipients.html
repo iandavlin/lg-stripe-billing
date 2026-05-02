@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Gift recipients UI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    --lg-sage: #87986A;
+    --lg-amber: #ECB351;
+    --lg-text: #1f1d1a;
+    --lg-muted: #777;
+    --lg-bg: #f7f6f1;
+    --lg-card: #ffffff;
+    --lg-border: rgba(0,0,0,0.1);
+  }
+  * { box-sizing: border-box; }
+  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--lg-text); background: var(--lg-bg); margin: 0; padding: 2em 1em; }
+  .lg-gift { max-width: 720px; margin: 0 auto; }
+  .lg-gift__panel { border: 1px solid var(--lg-border); border-radius: 10px; padding: 1.4em 1.4em; background: var(--lg-card); }
+  .lg-gift__panel-heading { margin: 1.4em 0 .55em; font-size: 1.05em; font-weight: 600; }
+  .lg-gift__panel-heading:first-child { margin-top: 0; }
+
+  /* Send-mode toggle (radio cards) */
+  .lg-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 0.5em; }
+  @media (max-width: 540px) { .lg-mode { grid-template-columns: 1fr; } }
+  .lg-mode__opt { position: relative; display: flex; gap: .8em; padding: 1em 1.1em; border: 2px solid var(--lg-border); border-radius: 8px; cursor: pointer; transition: border-color .15s, box-shadow .15s; background: var(--lg-card); }
+  .lg-mode__opt:hover { border-color: rgba(0,0,0,0.3); }
+  .lg-mode__opt.is-selected { border-color: var(--lg-amber); box-shadow: 0 0 0 3px rgba(236,179,81,0.18); }
+  .lg-mode__opt input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+  .lg-mode__icon { font-size: 1.4em; line-height: 1; }
+  .lg-mode__title { font-weight: 600; }
+  .lg-mode__sub { font-size: .9em; color: var(--lg-muted); margin-top: .15em; }
+
+  /* Buyer email field */
+  .lg-field { display: block; }
+  .lg-field input[type="email"] { width: 100%; padding: .65em .85em; font-size: 1em; border: 1px solid var(--lg-border); border-radius: 8px; }
+  .lg-field small { display: block; opacity: .7; font-size: .85em; margin-top: .35em; }
+
+  /* Recipient repeater */
+  .lg-recip { margin-top: 1em; display: none; }
+  .lg-recip.is-open { display: block; }
+  .lg-recip__bulk { display: flex; gap: .5em; margin-bottom: .6em; flex-wrap: wrap; }
+  .lg-recip__bulk-btn { padding: .35em .8em; border-radius: 999px; border: 1px solid var(--lg-border); background: var(--lg-card); cursor: pointer; font-size: .85em; }
+  .lg-recip__bulk-btn:hover { border-color: rgba(0,0,0,0.4); }
+  .lg-recip__paste { width: 100%; min-height: 5em; padding: .65em .85em; font: 14px/1.4 ui-monospace, Menlo, Consolas, monospace; border: 1px solid var(--lg-border); border-radius: 8px; resize: vertical; display: none; margin-bottom: .8em; }
+  .lg-recip__paste.is-open { display: block; }
+  .lg-recip__paste-help { font-size: .8em; color: var(--lg-muted); margin-top: -.3em; margin-bottom: .8em; display: none; }
+  .lg-recip__paste-help.is-open { display: block; }
+
+  .lg-recip__list { display: flex; flex-direction: column; gap: .55em; }
+  .lg-recip__row { display: grid; grid-template-columns: 36px 1.1fr 1.4fr; gap: 8px; align-items: start; }
+  .lg-recip__row[data-note-open="1"] { grid-template-columns: 36px 1.1fr 1.4fr; }
+  .lg-recip__row.is-error input { border-color: #dc2626; }
+  .lg-recip__num { display: flex; align-items: center; justify-content: center; font-size: .85em; color: var(--lg-muted); padding: .65em 0; font-variant-numeric: tabular-nums; }
+  .lg-recip__row input { width: 100%; padding: .55em .75em; font-size: .95em; border: 1px solid var(--lg-border); border-radius: 6px; }
+  .lg-recip__row input::placeholder { color: rgba(0,0,0,0.32); }
+  .lg-recip__row .note-row { grid-column: 2 / 4; }
+  .lg-recip__row .note-row textarea { width: 100%; min-height: 2.6em; padding: .55em .75em; font-size: .9em; border: 1px solid var(--lg-border); border-radius: 6px; resize: vertical; }
+  .lg-recip__add-note { background: none; border: none; color: var(--lg-sage); font-size: .82em; padding: .25em 0; cursor: pointer; text-align: left; }
+  .lg-recip__add-note:hover { text-decoration: underline; }
+
+  .lg-recip__status { margin-top: .8em; padding: .6em .9em; border-radius: 6px; font-size: .9em; }
+  .lg-recip__status.is-ok { background: rgba(135,152,106,0.12); color: #2d4f2a; }
+  .lg-recip__status.is-warn { background: rgba(255,200,80,0.18); color: #92400e; }
+  .lg-recip__status.is-error { background: rgba(220,38,38,0.1); color: #991b1b; }
+
+  /* Inline note row */
+  .lg-recip__note-row { grid-column: 2 / 4; }
+  .lg-recip__note-row textarea { width: 100%; min-height: 2.4em; padding: .5em .75em; font-size: .88em; border: 1px solid var(--lg-border); border-radius: 6px; resize: vertical; font-family: inherit; }
+
+  /* Apply-to-all note */
+  .lg-recip__apply-all { display: flex; gap: .5em; align-items: center; margin: .8em 0 0; padding: .6em .85em; background: rgba(0,0,0,0.03); border-radius: 6px; }
+  .lg-recip__apply-all textarea { flex: 1; min-height: 2em; padding: .4em .65em; font-size: .88em; border: 1px solid var(--lg-border); border-radius: 6px; resize: vertical; font-family: inherit; }
+  .lg-recip__apply-all-btn { padding: .4em .8em; font-size: .82em; border-radius: 6px; border: 1px solid var(--lg-sage); color: var(--lg-sage); background: var(--lg-card); cursor: pointer; white-space: nowrap; }
+
+  .mockup-state-toggle { position: fixed; top: 1em; right: 1em; background: white; border: 1px solid var(--lg-border); border-radius: 8px; padding: .6em .8em; box-shadow: 0 2px 6px rgba(0,0,0,0.06); font-size: .85em; }
+  .mockup-state-toggle h4 { margin: 0 0 .4em; font-size: .9em; }
+  .mockup-state-toggle button { display: block; width: 100%; text-align: left; padding: .35em .5em; margin: .15em 0; background: white; border: 1px solid var(--lg-border); border-radius: 4px; cursor: pointer; font-size: .85em; }
+  .mockup-state-toggle button.is-active { background: var(--lg-amber); border-color: transparent; font-weight: 600; }
+  .mockup-context { color: var(--lg-muted); font-size: .85em; padding-top: .8em; border-top: 1px dashed var(--lg-border); margin-top: 1.5em; }
+</style>
+</head>
+<body>
+
+<div class="mockup-state-toggle">
+  <h4>Mock state</h4>
+  <button data-qty="1" class="is-active">qty = 1</button>
+  <button data-qty="3">qty = 3</button>
+  <button data-qty="10">qty = 10</button>
+  <button data-qty="20">qty = 20</button>
+</div>
+
+<div class="lg-gift">
+  <div class="lg-gift__panel">
+    <h3 class="lg-gift__panel-heading">3. How should the codes get to recipients?</h3>
+
+    <div class="lg-mode">
+      <label class="lg-mode__opt is-selected" data-mode="self">
+        <input type="radio" name="mode" value="self" checked>
+        <div class="lg-mode__icon">📩</div>
+        <div>
+          <div class="lg-mode__title">Send to me</div>
+          <div class="lg-mode__sub">All codes go to your email. You forward them yourself.</div>
+        </div>
+      </label>
+      <label class="lg-mode__opt" data-mode="direct">
+        <input type="radio" name="mode" value="direct">
+        <div class="lg-mode__icon">🎁</div>
+        <div>
+          <div class="lg-mode__title">Send each recipient directly</div>
+          <div class="lg-mode__sub">We'll email each recipient with your name + an optional note.</div>
+        </div>
+      </label>
+    </div>
+
+    <!-- Buyer email (shown in BOTH modes; in direct mode it's just the receipt destination) -->
+    <h3 class="lg-gift__panel-heading">Your email <span style="font-weight:400;font-size:.85em;color:var(--lg-muted);" data-mode-label>(codes will be sent here)</span></h3>
+    <label class="lg-field">
+      <input type="email" placeholder="you@example.com">
+      <small data-mode-help>We send all codes to this address. You forward / share them yourself.</small>
+    </label>
+
+    <!-- Per-recipient block, shown only in direct mode -->
+    <div class="lg-recip" data-recip-block>
+      <h3 class="lg-gift__panel-heading">Recipients <span style="font-weight:400;font-size:.85em;color:var(--lg-muted);" data-recip-count>(0 / 0 ready)</span></h3>
+
+      <div class="lg-recip__bulk">
+        <button type="button" class="lg-recip__bulk-btn" data-toggle-paste>📋 Paste a list of emails</button>
+        <button type="button" class="lg-recip__bulk-btn" data-toggle-applyall>✏️ Apply same note to all</button>
+      </div>
+
+      <textarea class="lg-recip__paste" data-paste placeholder="alice@example.com
+Bob Smith <bob@example.com>
+carol@example.com"></textarea>
+      <p class="lg-recip__paste-help">One per line. Format: <code>name &lt;email&gt;</code> or just <code>email</code>. Click anywhere outside to apply.</p>
+
+      <div class="lg-recip__apply-all" style="display:none" data-applyall>
+        <textarea placeholder="Optional message included with every gift email…"></textarea>
+        <button type="button" class="lg-recip__apply-all-btn" data-applyall-btn>Apply to all</button>
+      </div>
+
+      <div class="lg-recip__list" data-list></div>
+
+      <div class="lg-recip__status is-warn" data-status>Fill in all 1 row to continue.</div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup-context">
+  This is a static mockup of the new "How should codes get to recipients?" section. The qty toggles in the top-right simulate what happens when the buyer changes their gift quantity upstream. Try switching to "Send each recipient directly" + qty=10 to see the bulk repeater with paste-list and apply-to-all-note features.
+</div>
+
+<script>
+const list      = document.querySelector('[data-list]');
+const recipBlk  = document.querySelector('[data-recip-block]');
+const status    = document.querySelector('[data-status]');
+const recipCnt  = document.querySelector('[data-recip-count]');
+const modeLabel = document.querySelector('[data-mode-label]');
+const modeHelp  = document.querySelector('[data-mode-help]');
+const opts      = document.querySelectorAll('.lg-mode__opt');
+const pasteEl   = document.querySelector('[data-paste]');
+const pasteHelp = document.querySelector('.lg-recip__paste-help');
+const applyAll  = document.querySelector('[data-applyall]');
+const togglePaste = document.querySelector('[data-toggle-paste]');
+const toggleApply = document.querySelector('[data-toggle-applyall]');
+const applyAllBtn = document.querySelector('[data-applyall-btn]');
+const stateBtns = document.querySelectorAll('.mockup-state-toggle button');
+
+let qty = 1;
+let mode = 'self';
+let rows = []; // {name, email, note, noteOpen}
+
+function renderRows() {
+  // Ensure rows array length matches qty
+  while (rows.length < qty) rows.push({ name: '', email: '', note: '', noteOpen: false });
+  while (rows.length > qty) rows.pop();
+
+  list.innerHTML = '';
+  rows.forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'lg-recip__row';
+    row.innerHTML =
+      `<div class="lg-recip__num">${i + 1}.</div>` +
+      `<input type="text"  placeholder="Name (optional)" value="${r.name}"  data-i="${i}" data-f="name">` +
+      `<input type="email" placeholder="email"           value="${r.email}" data-i="${i}" data-f="email">`;
+    list.appendChild(row);
+
+    if (r.noteOpen || r.note) {
+      const noteRow = document.createElement('div');
+      noteRow.className = 'lg-recip__row';
+      noteRow.style.gridTemplateColumns = '36px 1fr';
+      noteRow.innerHTML =
+        `<div class="lg-recip__num"></div>` +
+        `<textarea placeholder="Personal note for ${r.name || 'this recipient'}…" data-i="${i}" data-f="note" style="width:100%;min-height:2.4em;padding:.5em .75em;font-size:.88em;border:1px solid var(--lg-border);border-radius:6px;font-family:inherit;">${r.note}</textarea>`;
+      list.appendChild(noteRow);
+    } else {
+      const addBtn = document.createElement('div');
+      addBtn.className = 'lg-recip__row';
+      addBtn.style.gridTemplateColumns = '36px 1fr';
+      addBtn.innerHTML =
+        `<div class="lg-recip__num"></div>` +
+        `<button type="button" class="lg-recip__add-note" data-i="${i}">+ Add personal note</button>`;
+      list.appendChild(addBtn);
+    }
+  });
+  updateStatus();
+}
+function updateStatus() {
+  const filled = rows.filter(r => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(r.email)).length;
+  recipCnt.textContent = `(${filled} / ${qty} ready)`;
+  if (filled === qty) {
+    status.className = 'lg-recip__status is-ok';
+    status.textContent = `✓ Ready — ${filled} recipient${qty === 1 ? '' : 's'} will each receive their own gift email.`;
+  } else if (filled > 0) {
+    status.className = 'lg-recip__status is-warn';
+    status.textContent = `${qty - filled} more recipient${qty - filled === 1 ? '' : 's'} needed before checkout.`;
+  } else {
+    status.className = 'lg-recip__status is-warn';
+    status.textContent = `Fill in all ${qty} row${qty === 1 ? '' : 's'} to continue.`;
+  }
+}
+
+list.addEventListener('input', e => {
+  const i = parseInt(e.target.dataset.i, 10);
+  const f = e.target.dataset.f;
+  if (Number.isFinite(i) && f) {
+    rows[i][f] = e.target.value;
+    updateStatus();
+  }
+});
+list.addEventListener('click', e => {
+  if (e.target.classList.contains('lg-recip__add-note')) {
+    const i = parseInt(e.target.dataset.i, 10);
+    rows[i].noteOpen = true;
+    renderRows();
+  }
+});
+
+opts.forEach(o => o.addEventListener('click', () => {
+  opts.forEach(x => x.classList.remove('is-selected'));
+  o.classList.add('is-selected');
+  o.querySelector('input[type="radio"]').checked = true;
+  mode = o.dataset.mode;
+  recipBlk.classList.toggle('is-open', mode === 'direct');
+  if (mode === 'direct') {
+    modeLabel.textContent = '(receipt + buyer copy of all codes)';
+    modeHelp.textContent  = "We'll send all codes to you as a backup, plus a separate personalized email to each recipient below.";
+  } else {
+    modeLabel.textContent = '(codes will be sent here)';
+    modeHelp.textContent  = 'We send all codes to this address. You forward / share them yourself.';
+  }
+}));
+
+togglePaste.addEventListener('click', () => {
+  pasteEl.classList.toggle('is-open');
+  pasteHelp.classList.toggle('is-open');
+  if (pasteEl.classList.contains('is-open')) pasteEl.focus();
+});
+pasteEl.addEventListener('blur', () => {
+  const lines = pasteEl.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  lines.forEach((line, i) => {
+    if (i >= rows.length) return;
+    const m = line.match(/^(.+?)\s*<(.+@.+)>$/);
+    if (m) { rows[i].name = m[1].trim(); rows[i].email = m[2].trim(); }
+    else if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(line)) { rows[i].email = line; }
+  });
+  renderRows();
+});
+
+toggleApply.addEventListener('click', () => {
+  applyAll.style.display = applyAll.style.display === 'none' ? 'flex' : 'none';
+});
+applyAllBtn.addEventListener('click', () => {
+  const note = applyAll.querySelector('textarea').value.trim();
+  rows.forEach(r => { r.note = note; r.noteOpen = note !== ''; });
+  renderRows();
+});
+
+stateBtns.forEach(b => b.addEventListener('click', () => {
+  stateBtns.forEach(x => x.classList.remove('is-active'));
+  b.classList.add('is-active');
+  qty = parseInt(b.dataset.qty, 10);
+  renderRows();
+}));
+
+renderRows();
+</script>
+
+</body>
+</html>

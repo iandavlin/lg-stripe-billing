@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Gift recipient email</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  /* Outer page styles (NOT part of the email — just for previewing) */
+  body { background: #e8e6df; margin: 0; padding: 2em 1em; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .preview-shell { max-width: 720px; margin: 0 auto; }
+  .preview-meta { background: white; padding: 1em 1.2em; border-radius: 8px; margin-bottom: 1em; font-size: 14px; line-height: 1.6; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .preview-meta strong { display: inline-block; width: 70px; color: #555; font-weight: 500; }
+  .preview-meta .subj { font-weight: 600; font-size: 1.05em; }
+  .preview-context { color: #777; font-size: .85em; padding: 1em 1em 0; border-top: 1px dashed #c0bfb8; margin-top: 1em; max-width: 720px; margin-left: auto; margin-right: auto; }
+  .mockup-state-toggle { position: fixed; top: 1em; right: 1em; background: white; border: 1px solid #c0bfb8; border-radius: 8px; padding: .6em .8em; box-shadow: 0 2px 6px rgba(0,0,0,0.06); font-size: .85em; }
+  .mockup-state-toggle h4 { margin: 0 0 .4em; font-size: .9em; }
+  .mockup-state-toggle button { display: block; width: 100%; text-align: left; padding: .35em .5em; margin: .15em 0; background: white; border: 1px solid #c0bfb8; border-radius: 4px; cursor: pointer; font-size: .85em; }
+  .mockup-state-toggle button.is-active { background: #ECB351; border-color: transparent; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="mockup-state-toggle">
+  <h4>Mock state</h4>
+  <button data-state="full" class="is-active">With note</button>
+  <button data-state="nonote">No note</button>
+  <button data-state="long">Long note</button>
+  <button data-state="lite">LITE tier</button>
+  <button data-state="anon">No giver name</button>
+</div>
+
+<div class="preview-shell">
+  <div class="preview-meta">
+    <div><strong>From:</strong> <span data-from>The Looth Group &lt;hello@loothgroup.com&gt;</span></div>
+    <div><strong>To:</strong> <span data-to>Alice Johnson &lt;alice@example.com&gt;</span></div>
+    <div><strong>Subject:</strong> <span class="subj" data-subj>Sarah Chen has gifted you a Looth PRO membership 🎁</span></div>
+  </div>
+
+  <!-- ============================================================
+       EMAIL HTML BEGINS HERE
+       Table-based layout for Outlook compatibility, inline styles
+       on every element, max-width 600px (industry standard).
+       ============================================================ -->
+  <div style="background:#f3f1ea;padding:0;margin:0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f1ea;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1f1d1a;">
+    <tr><td align="center" style="padding:32px 16px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+
+        <!-- Header band -->
+        <tr><td style="background:#87986A;color:#ffffff;padding:24px 28px 22px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="font-size:18px;font-weight:600;letter-spacing:.5px;">The Looth Group</td>
+              <td align="right" style="font-size:13px;opacity:.85;">A gift for you</td>
+            </tr>
+          </table>
+        </td></tr>
+
+        <!-- Hero -->
+        <tr><td style="padding:36px 28px 8px;text-align:center;">
+          <div style="font-size:44px;line-height:1;margin-bottom:8px;">🎁</div>
+          <h1 data-h1 style="margin:0 0 6px;font-size:24px;line-height:1.2;font-weight:700;color:#1f1d1a;">You've been gifted a Looth PRO membership</h1>
+          <p data-greet style="margin:14px 0 0;font-size:15px;line-height:1.55;color:#444;">
+            Hi <strong>Alice</strong>, <strong>Sarah Chen</strong> picked up a 1-year Looth PRO membership for you. Welcome.
+          </p>
+        </td></tr>
+
+        <!-- Personal note -->
+        <tr><td data-note-cell style="padding:18px 28px 8px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbf6e8;border-left:4px solid #ECB351;border-radius:0 6px 6px 0;">
+            <tr><td style="padding:14px 18px;font-size:14.5px;line-height:1.55;color:#1f1d1a;">
+              <em>"<span data-note>Happy birthday Alice — figured this would beat another scarf. The forums are wild, you'll love them. — S</span>"</em>
+            </td></tr>
+          </table>
+        </td></tr>
+
+        <!-- The code -->
+        <tr><td style="padding:24px 28px 8px;">
+          <p style="margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#777;">Your gift code</p>
+          <div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:24px;font-weight:600;letter-spacing:.12em;background:#f7f5ee;border:1px dashed #c0bfb8;border-radius:8px;padding:14px 16px;text-align:center;color:#1f1d1a;">
+            <span data-code>LG7K-Q9PM-X4BR</span>
+          </div>
+        </td></tr>
+
+        <!-- CTA -->
+        <tr><td style="padding:18px 28px 28px;text-align:center;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+            <tr><td style="background:#ECB351;border-radius:8px;">
+              <a href="https://loothgroup.com/lggift/?code=LG7K-Q9PM-X4BR" data-cta-href style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:600;color:#1f1d1a;text-decoration:none;border-radius:8px;">Redeem your membership →</a>
+            </td></tr>
+          </table>
+          <p style="margin:12px 0 0;font-size:13px;color:#777;">Codes never expire — redeem whenever you're ready.</p>
+        </td></tr>
+
+        <!-- What's included -->
+        <tr><td style="padding:0 28px 28px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f7f5ee;border-radius:8px;">
+            <tr><td style="padding:18px 22px;">
+              <p style="margin:0 0 10px;font-size:14px;font-weight:600;">What you get for the next 12 months</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr><td style="padding:3px 0;font-size:14px;line-height:1.55;color:#444;">✓ Members-only forums and full historical archive</td></tr>
+                <tr data-pro-perks><td style="padding:3px 0;font-size:14px;line-height:1.55;color:#444;">✓ Sponsor benefits and exclusive content</td></tr>
+                <tr><td style="padding:3px 0;font-size:14px;line-height:1.55;color:#444;">✓ Member events and community calendar</td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="padding:0 28px 28px;">
+          <p style="margin:0 0 10px;font-size:13px;line-height:1.55;color:#888;">
+            Didn't expect this? <a data-from-name-link href="mailto:hello@loothgroup.com" style="color:#87986A;">Reply to this email</a> and we'll sort it out — no harm done. Codes can be returned within 30 days.
+          </p>
+          <p style="margin:0;font-size:12px;color:#aaa;">
+            The Looth Group · <a href="https://loothgroup.com" style="color:#aaa;">loothgroup.com</a>
+          </p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+  </div>
+  <!-- ============================================================
+       EMAIL HTML ENDS HERE
+       ============================================================ -->
+</div>
+
+<div class="preview-context">
+  Recipient-side HTML email. Table-based layout + inline styles for Outlook/Gmail-app compatibility. The toggles in the corner simulate template variants the buyer might trigger:
+  <strong>With note</strong> / <strong>No note</strong> = was a personal message included.
+  <strong>Long note</strong> = stress-test long-form messages (no truncation, content reflows).
+  <strong>LITE tier</strong> = different perks list.
+  <strong>No giver name</strong> = buyer didn't enter their name; we fall back to "Someone" or use email.
+</div>
+
+<script>
+const states = {
+  full: {
+    h1: "You've been gifted a Looth PRO membership",
+    greet: 'Hi <strong>Alice</strong>, <strong>Sarah Chen</strong> picked up a 1-year Looth PRO membership for you. Welcome.',
+    note: 'Happy birthday Alice — figured this would beat another scarf. The forums are wild, you’ll love them. — S',
+    showNote: true,
+    code: 'LG7K-Q9PM-X4BR',
+    subj: 'Sarah Chen has gifted you a Looth PRO membership 🎁',
+    pro: true,
+  },
+  nonote: {
+    h1: "You've been gifted a Looth PRO membership",
+    greet: 'Hi <strong>Alice</strong>, <strong>Sarah Chen</strong> picked up a 1-year Looth PRO membership for you. Welcome.',
+    showNote: false,
+    code: 'LG7K-Q9PM-X4BR',
+    subj: 'Sarah Chen has gifted you a Looth PRO membership 🎁',
+    pro: true,
+  },
+  long: {
+    h1: "You've been gifted a Looth PRO membership",
+    greet: 'Hi <strong>Alice</strong>, <strong>Sarah Chen</strong> picked up a 1-year Looth PRO membership for you. Welcome.',
+    note: "Hey Alice. I know you've been on the fence about joining for ages — kept saying \"I'll do it after the next project\" — so I figured I'd remove the friction. Year's on me. The forum repair-and-restoration sub is a goldmine. They have a Saturday morning thing where Mike from StewMac just answers questions for an hour. Wild that it isn't paywalled harder. Anyway. Happy birthday. Don't say I never gave you anything. — S",
+    showNote: true,
+    code: 'LG7K-Q9PM-X4BR',
+    subj: 'Sarah Chen has gifted you a Looth PRO membership 🎁',
+    pro: true,
+  },
+  lite: {
+    h1: "You've been gifted a Looth LITE membership",
+    greet: 'Hi <strong>Alice</strong>, <strong>Sarah Chen</strong> picked up a 1-year Looth LITE membership for you. Welcome.',
+    note: 'Welcome to the community.',
+    showNote: true,
+    code: 'LG2A-K8VN-T7QS',
+    subj: 'Sarah Chen has gifted you a Looth LITE membership 🎁',
+    pro: false,
+  },
+  anon: {
+    h1: "Someone gifted you a Looth PRO membership",
+    greet: 'Hi there — someone picked up a 1-year Looth PRO membership for you anonymously. Lucky you.',
+    showNote: false,
+    code: 'LG7K-Q9PM-X4BR',
+    subj: 'A gift Looth PRO membership — for you 🎁',
+    pro: true,
+  },
+};
+const els = {
+  h1:    document.querySelector('[data-h1]'),
+  greet: document.querySelector('[data-greet]'),
+  note:  document.querySelector('[data-note]'),
+  noteCell: document.querySelector('[data-note-cell]'),
+  code:  document.querySelector('[data-code]'),
+  subj:  document.querySelector('[data-subj]'),
+  proPerks: document.querySelector('[data-pro-perks]'),
+  cta:   document.querySelector('[data-cta-href]'),
+};
+function apply(name) {
+  const s = states[name];
+  els.h1.textContent = s.h1;
+  els.greet.innerHTML = s.greet;
+  if (s.showNote) {
+    els.noteCell.style.display = '';
+    els.note.textContent = s.note;
+  } else {
+    els.noteCell.style.display = 'none';
+  }
+  els.code.textContent = s.code;
+  els.subj.textContent = s.subj;
+  els.proPerks.style.display = s.pro ? '' : 'none';
+  els.cta.href = 'https://loothgroup.com/lggift/?code=' + s.code;
+}
+document.querySelectorAll('.mockup-state-toggle button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.mockup-state-toggle button').forEach(x => x.classList.remove('is-active'));
+    b.classList.add('is-active');
+    apply(b.dataset.state);
+  });
+});
+apply('full');
+</script>
+
+</body>
+</html>
