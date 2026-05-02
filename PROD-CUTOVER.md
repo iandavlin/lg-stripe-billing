@@ -10,7 +10,7 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 - [ ] Create `/var/www/billing/lg-stripe-billing/` owned by `ubuntu`
 - [ ] Clone repo, run `composer install --no-dev`
 - [ ] Create `lg_membership_prod` MySQL DB + user
-- [ ] Apply `db/schema.sql` + `db/migrations/001_gift_codes.sql` + seed (region tags only)
+- [ ] Apply `db/schema.sql` + every `db/migrations/NNN_*.sql` in order (001 through 007 as of session 9: `001_gift_codes`, `002_gift_voided`, `003_customers_blocked`, `004_admin_action_log`, `005_products_region_tag`, `006_gift_codes_recipients`, `007_gift_recipients_pending`) + seed (region tags only — products auto-create via `bin/stripe-import-catalog.php`)
 - [ ] Add nginx `/billing/` location to `loothgroup.com.conf`
 - [ ] New php-fpm pool `lg-billing-live` running as `ubuntu`
 - [ ] Deploy `lg-patreon-stripe-poller` to `/var/www/html/wp-content/plugins/`
@@ -223,6 +223,16 @@ Customer picks Regional price from [lg_join]
   │
   └─ admin_action_log row written for every attempt (pass + fail)
 ```
+
+## Gift recipient emails (Tier 1 gift management)
+
+The plugin's `GiftMailer` orchestrates two email types for every gift purchase:
+1. **Per-recipient HTML emails** — sent to each gift recipient when the buyer used the "Send each recipient directly" mode on `[lg_gift]`. Template at `templates/email/gift-recipient.html.php` (sage header, optional pull-quote message, big code, amber CTA, perks list). Mirrors `lg-stripe-billing/public/mockup-gift-email.html` — keep them in sync if the design evolves.
+2. **Buyer summary** — always sent. Lists buyer-kept codes as clickable chips and addressed codes as a recipient/code table so the buyer has a record of who got what.
+
+From-name on per-recipient emails reads "{Giver name} via The Looth Group" with `Reply-To: {giver_email}` so a recipient's "thanks!" lands in the buyer's inbox. Falls back to `lgms_refund_email` (or admin email) when the buyer's email is invalid.
+
+Verify after cutover: a 2-code purchase in direct mode with two real test mailboxes should produce two recipient emails + one buyer summary, each rendering correctly across Gmail web, Apple Mail, and Outlook web (test those three minimum).
 
 ## Final Verification
 

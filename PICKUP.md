@@ -1,14 +1,42 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-05-02 (session 8)*
+*Last worked: 2026-05-02 (session 9)*
 
-## NEXT — `[lg_redeem_gift]` shortcode polish OR `charge.refunded` webhook OR prod cutover
+## NEXT — Tier 2 gift mgmt OR `charge.refunded` OR prod cutover
 
-The regional verification flow is fully complete (verify, fail-landing, audit, auto-detect, FX hint). What's left in priority order:
+What's left in priority order:
 
-1. **`charge.refunded` webhook confirmation** — register the event in Stripe + verify our handler revokes immediately. Currently unverified per session 6 notes.
-2. **`[lg_redeem_gift]` shortcode** — member-facing gift redemption form. Currently codes only redeemable via API.
+1. **Tier 2 gift management** — buyer self-service dashboard. Magic-link auth from the buyer-summary email gives access to `[lg_my_gifts]`: list of all codes purchased, redemption status per code, "resend" button per unredeemed code, "edit recipient" before redemption. Notification to the buyer when each recipient redeems. Tier 1 (this session) shipped the data model + per-recipient email pipeline; Tier 2 builds on it.
+2. **`charge.refunded` webhook** — register the event in Stripe + verify our handler revokes immediately. Currently unverified per session 6 notes.
 3. **Production cutover** — clean greenfield deploy. See full checklist in PROD-CUTOVER.md.
+
+## What shipped in session 9 (this one)
+
+### Gift page redesign (committed early)
+- `[lg_gift]` rebuilt: centered container (fixed "crushed left"), tier cards with "Most popular" badge, − [n] + quantity stepper, preset chips (1/10/20/50 with discount tags), live progress bar to next bulk tier, pricing summary card with savings callout, dynamic CTA ("Continue to checkout · 10 codes · $540"), trust line.
+
+### Plugin-managed pages (Pages.php)
+- New `Wp\Pages` class — single source of truth for every shortcode-hosting page (slug, title, template, public/private, in_nav, visibility, nav_label).
+- Auto-seed on plugin activation: missing pages inserted, BuddyBoss public-content allowlist auto-populated, rewrite rules + object cache flushed.
+- Admin button "Re-create / sync membership pages" for re-running without deactivate/reactivate.
+- `[lg_member_nav]` now reads from the registry — `Join` hidden when logged-in, `Manage Subscription` hidden when logged-out.
+- `nocache_headers()` sent on shortcode-hosting pages so CF doesn't cache 404s during page-creation cycles.
+
+### Welcome / regional-fail landing pages
+- `[lg_subscription_success]` — branches on `?kind=subscription|regional_subscription|membership_annual|gift` and reads tier/qty/expires_at to render kind-specific welcome copy.
+- `ReturnHandler` — every success path now sets `redirect_url` so the customer lands on `/welcome/` instead of seeing JSON.
+- `APP_RETURN_SUCCESS_URL` env var added.
+
+### Tier 1 gift management — addressed gifts
+- Migrations `006_gift_codes_recipients.sql` (recipient_email/name/gift_message/email_sent_at) + `007_gift_recipients_pending.sql` (staging table keyed by Stripe session, varchar(128)).
+- `[lg_gift]` "How should the codes get to recipients?" section — toggle between "Send to me" and "Send each recipient directly", per-row repeater with name/email/optional note, paste-list parser ("Name <email>" format), apply-same-note-to-all helper.
+- `PendingGiftRecipientsRepository` (interface + Pdo impl) — store on /v1/checkout, consume-and-delete on /v1/return.
+- `GiftMailer` rewritten to fan out per-recipient HTML emails using `templates/email/gift-recipient.html.php` (matches the mockup) plus a buyer summary that lists every code with the recipient who got it.
+- From-name on recipient emails: "{Giver} via The Looth Group", Reply-To = giver email.
+- Smoke-tested via `/v1/checkout` POST: clientSecret returned, 3 recipient rows persisted with correct positions and NULL handling for empty fields.
+
+### Cloudflare cache bypass rule
+- Cache Rule deployed (via Ian's CF dashboard) with bypass for both dev + prod hosts on the membership paths + entire `/billing/*` API. Eliminates the "page works in 5 minutes after CF cache TTL" issues during page-creation cycles.
 
 ## What shipped in session 8 (this one)
 
