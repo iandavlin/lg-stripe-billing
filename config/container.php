@@ -8,6 +8,7 @@ use LGSB\Adapters\PdoAdminActionLogRepository;
 use LGSB\Adapters\PdoCustomerRepository;
 use LGSB\Adapters\PdoEntitlementRepository;
 use LGSB\Adapters\PdoGiftCodeRepository;
+use LGSB\Adapters\PdoPendingGiftRecipientsRepository;
 use LGSB\Adapters\PdoProductRepository;
 use LGSB\Adapters\PdoSubscriptionRepository;
 use LGSB\Contracts\SettingsStore;
@@ -15,6 +16,7 @@ use LGSB\Domain\Repositories\AdminActionLogRepository;
 use LGSB\Domain\Repositories\CustomerRepository;
 use LGSB\Domain\Repositories\EntitlementRepository;
 use LGSB\Domain\Repositories\GiftCodeRepository;
+use LGSB\Domain\Repositories\PendingGiftRecipientsRepository;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Domain\Repositories\SubscriptionRepository;
 use LGSB\Stripe\StripeGateway;
@@ -75,6 +77,9 @@ return [
 
     AdminActionLogRepository::class => fn (ContainerInterface $c): AdminActionLogRepository =>
         new PdoAdminActionLogRepository($c->get(PDO::class)),
+
+    PendingGiftRecipientsRepository::class => fn (ContainerInterface $c): PendingGiftRecipientsRepository =>
+        new PdoPendingGiftRecipientsRepository($c->get(PDO::class)),
 
     /* Core services (CheckoutService, CustomerManager, EntitlementManager,
        ReturnHandler, WpSync, WpGiftMailer, BulkPricer) and HTTP controllers

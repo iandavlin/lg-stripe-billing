@@ -31,22 +31,29 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
         string $tier,
         int    $durationDays,
         string $stripeSessionId,
+        ?array $recipients = null,
     ): array {
         $codes = $this->generateUniqueCodes($count);
 
-        $placeholders = implode(', ', array_fill(0, $count, '(?, ?, ?, ?, ?)'));
+        $placeholders = implode(', ', array_fill(0, $count, '(?, ?, ?, ?, ?, ?, ?, ?)'));
         $stmt = $this->pdo->prepare(
-            "INSERT INTO gift_codes (code, tier, duration_days, purchased_by, stripe_session_id)
+            "INSERT INTO gift_codes
+                 (code, tier, duration_days, purchased_by, stripe_session_id,
+                  recipient_email, recipient_name, gift_message)
              VALUES {$placeholders}"
         );
 
         $params = [];
-        foreach ($codes as $code) {
+        foreach ($codes as $i => $code) {
+            $r = $recipients[$i] ?? null;
             $params[] = $code;
             $params[] = $tier;
             $params[] = $durationDays;
             $params[] = $purchasedBy;
             $params[] = $stripeSessionId;
+            $params[] = self::nonEmpty($r['email']   ?? null);
+            $params[] = self::nonEmpty($r['name']    ?? null);
+            $params[] = self::nonEmpty($r['message'] ?? null);
         }
         $stmt->execute($params);
 
@@ -57,6 +64,21 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return array_map([self::class, 'toDto'], $rows);
+    }
+
+    public function markEmailSent(int $giftCodeId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE gift_codes SET email_sent_at = NOW() WHERE id = ? AND email_sent_at IS NULL'
+        );
+        $stmt->execute([$giftCodeId]);
+    }
+
+    private static function nonEmpty(?string $v): ?string
+    {
+        if ($v === null) return null;
+        $t = trim($v);
+        return $t === '' ? null : $t;
     }
 
     public function redeem(int $giftCodeId, int $redeemedBy): void
@@ -148,6 +170,10 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
             redeemedAt:      $row['redeemed_at'] !== null ? new DateTimeImmutable((string) $row['redeemed_at']) : null,
             voidedAt:        isset($row['voided_at']) && $row['voided_at'] !== null ? new DateTimeImmutable((string) $row['voided_at']) : null,
             createdAt:       new DateTimeImmutable((string) $row['created_at']),
+            recipientEmail:  isset($row['recipient_email']) && $row['recipient_email'] !== null ? (string) $row['recipient_email'] : null,
+            recipientName:   isset($row['recipient_name'])  && $row['recipient_name']  !== null ? (string) $row['recipient_name']  : null,
+            giftMessage:     isset($row['gift_message'])    && $row['gift_message']    !== null ? (string) $row['gift_message']    : null,
+            emailSentAt:     isset($row['email_sent_at'])   && $row['email_sent_at']   !== null ? new DateTimeImmutable((string) $row['email_sent_at']) : null,
         );
     }
 }

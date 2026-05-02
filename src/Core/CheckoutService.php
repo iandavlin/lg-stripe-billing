@@ -6,6 +6,7 @@ namespace LGSB\Core;
 
 use InvalidArgumentException;
 use LGSB\Contracts\SettingsStore;
+use LGSB\Domain\Repositories\PendingGiftRecipientsRepository;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Stripe\StripeGateway;
 use RuntimeException;
@@ -13,10 +14,11 @@ use RuntimeException;
 class CheckoutService
 {
     public function __construct(
-        private readonly SettingsStore     $settings,
-        private readonly StripeGateway     $stripe,
-        private readonly ProductRepository $products,
-        private readonly CustomerManager   $customers,
+        private readonly SettingsStore                   $settings,
+        private readonly StripeGateway                   $stripe,
+        private readonly ProductRepository               $products,
+        private readonly CustomerManager                 $customers,
+        private readonly PendingGiftRecipientsRepository $pendingRecipients,
     ) {}
 
     /**
@@ -141,15 +143,22 @@ class CheckoutService
      * Quantity >= 2 triggers this path. Discounts are applied per BulkPricer
      * (BULK_DISCOUNT_TIERS env). The return handler generates one gift code per seat.
      *
+     * If $recipients is provided, the buyer wants direct-to-recipient emails:
+     * each entry pairs with one generated code (by position). Stored
+     * separately and consumed on /v1/return — Stripe metadata can't reliably
+     * carry a 50-recipient batch.
+     *
+     * @param list<array{email?:?string, name?:?string, message?:?string}>|null $recipients
      * @return array{clientSecret:string}
      */
     public function createGiftCheckoutSession(
         string  $priceId,
         int     $quantity,
-        ?string $email     = null,
-        ?string $country   = null,
-        ?string $promoCode = null,
-        ?string $name      = null,
+        ?string $email      = null,
+        ?string $country    = null,
+        ?string $promoCode  = null,
+        ?string $name       = null,
+        ?array  $recipients = null,
     ): array {
         if ($quantity < 1) {
             throw new InvalidArgumentException('Gift checkout requires quantity >= 1.');
@@ -205,7 +214,20 @@ class CheckoutService
         $this->applyPromoOrAllow($params, $promoCode);
         $this->attachCustomer($params, $email, $country, $name);
 
+        // Flag the session so handleGift() knows to look up pending recipients.
+        // Cheaper than a DB hit on every gift return when no recipients exist.
+        if ($recipients !== null && $recipients !== []) {
+            $params['metadata']['has_recipients'] = '1';
+        }
+
         $session = $this->stripe->createCheckoutSession($params);
+
+        // Persist the recipient list keyed by the just-minted Stripe session ID
+        // so handleGift() on /v1/return can pair them with the generated codes.
+        if ($recipients !== null && $recipients !== []) {
+            $this->pendingRecipients->store((string) $session->id, $recipients);
+        }
+
         return ['clientSecret' => (string) $session->client_secret];
     }
 

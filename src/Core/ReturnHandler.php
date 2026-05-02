@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use LGSB\Contracts\SettingsStore;
 use LGSB\Domain\Repositories\AdminActionLogRepository;
 use LGSB\Domain\Repositories\GiftCodeRepository;
+use LGSB\Domain\Repositories\PendingGiftRecipientsRepository;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Domain\Repositories\SubscriptionRepository;
 use LGSB\Stripe\StripeGateway;
@@ -26,16 +27,17 @@ use LGSB\Stripe\StripeGateway;
 class ReturnHandler
 {
     public function __construct(
-        private readonly StripeGateway             $stripe,
-        private readonly ProductRepository         $products,
-        private readonly CustomerManager           $customers,
-        private readonly SubscriptionRepository    $subscriptions,
-        private readonly EntitlementManager        $entitlements,
-        private readonly GiftCodeRepository        $giftCodes,
-        private readonly WpGiftMailer              $mailer,
-        private readonly WpSync                    $wpSync,
-        private readonly SettingsStore             $settings,
-        private readonly AdminActionLogRepository  $auditLog,
+        private readonly StripeGateway                   $stripe,
+        private readonly ProductRepository               $products,
+        private readonly CustomerManager                 $customers,
+        private readonly SubscriptionRepository          $subscriptions,
+        private readonly EntitlementManager              $entitlements,
+        private readonly GiftCodeRepository              $giftCodes,
+        private readonly WpGiftMailer                    $mailer,
+        private readonly WpSync                          $wpSync,
+        private readonly SettingsStore                   $settings,
+        private readonly AdminActionLogRepository        $auditLog,
+        private readonly PendingGiftRecipientsRepository $pendingRecipients,
     ) {}
 
     /**
@@ -344,14 +346,25 @@ class ReturnHandler
             $country,
         );
 
+        // Look up pending recipients (set by CheckoutService when the buyer
+        // chose direct-to-recipient mode). consume() reads + deletes in one
+        // pass; missing rows return empty (legacy "buyer keeps codes" mode).
+        $hasRecipientsFlag = (string) ($meta->has_recipients ?? '') === '1';
+        $recipients = $hasRecipientsFlag
+            ? $this->pendingRecipients->consume((string) $session->id)
+            : [];
+
         $codes = $this->giftCodes->createBatch(
             $quantity,
             $customer->id,
             $tier,
             $durationDays,
             (string) $session->id,
+            $recipients !== [] ? $recipients : null,
         );
 
+        // Mailer dispatches both the buyer summary AND, where recipients are
+        // attached to codes, individual personalized HTML emails.
         $this->mailer->sendGiftCodes($email, $name ?: 'Looth Member', $codes);
 
         return [

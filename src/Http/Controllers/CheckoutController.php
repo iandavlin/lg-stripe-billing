@@ -49,6 +49,29 @@ final class CheckoutController
             ? (bool) $body['gift']
             : $quantity >= 2;
 
+        // Optional recipient list for direct-to-recipient gift mode.
+        // Each entry: {email?, name?, message?}. Caller sends as many entries
+        // as quantity (validated downstream); fewer is allowed (the missing
+        // ones fall back to "buyer keeps the code"). Only meaningful when
+        // $isGift is true.
+        $recipientsArg = null;
+        if ($isGift && isset($body['recipients']) && is_array($body['recipients'])) {
+            $recipientsArg = [];
+            foreach ($body['recipients'] as $r) {
+                if (!is_array($r)) {
+                    continue;
+                }
+                $recipientsArg[] = [
+                    'email'   => isset($r['email'])   ? trim((string) $r['email'])   : null,
+                    'name'    => isset($r['name'])    ? trim((string) $r['name'])    : null,
+                    'message' => isset($r['message']) ? trim((string) $r['message']) : null,
+                ];
+            }
+            if ($recipientsArg === []) {
+                $recipientsArg = null;
+            }
+        }
+
         if ($priceId === '') {
             return self::json($response, ['error' => 'price_id is required'], 400);
         }
@@ -84,7 +107,7 @@ final class CheckoutController
         try {
             if ($isGift) {
                 $result = $this->checkout->createGiftCheckoutSession(
-                    $priceId, $quantity, $emailArg, $countryArg, $promoArg, $nameArg,
+                    $priceId, $quantity, $emailArg, $countryArg, $promoArg, $nameArg, $recipientsArg,
                 );
             } else {
                 $priceData = $this->products->findPriceData($priceId);

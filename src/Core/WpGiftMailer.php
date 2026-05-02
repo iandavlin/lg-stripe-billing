@@ -36,14 +36,22 @@ final class WpGiftMailer
             return;
         }
 
+        // Codes carrying recipient data go to that person directly. Codes
+        // without recipient data fall back to the legacy "buyer keeps codes"
+        // bulk summary email. The WP plugin endpoint does both based on the
+        // per-code recipient_email field, in one call.
         $payload = json_encode([
-            'to_email' => $toEmail,
-            'to_name'  => $toName,
+            'to_email'  => $toEmail,
+            'to_name'   => $toName,
             'codes'    => array_map(
                 static fn (GiftCode $c): array => [
-                    'code'          => $c->code,
-                    'tier'          => $c->tier,
-                    'duration_days' => $c->durationDays,
+                    'id'              => $c->id,
+                    'code'            => $c->code,
+                    'tier'            => $c->tier,
+                    'duration_days'   => $c->durationDays,
+                    'recipient_email' => $c->recipientEmail,
+                    'recipient_name'  => $c->recipientName,
+                    'gift_message'    => $c->giftMessage,
                 ],
                 $codes,
             ),
