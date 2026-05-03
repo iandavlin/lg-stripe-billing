@@ -247,7 +247,7 @@ final class GiftRedemptionService
             'options'         => [
                 [
                     'id'    => self::STRATEGY_STACK_HIGHER_FIRST,
-                    'label' => "{$tierHigher} for {$daysHigher} days, then {$tierLower} for {$daysLower} days",
+                    'label' => "Stacked: {$tierHigher} for {$daysHigher} days, then {$tierLower} for {$daysLower} days",
                     'tier_first'  => $tierHigher,
                     'days_first'  => $daysHigher,
                     'tier_second' => $tierLower,
@@ -256,7 +256,7 @@ final class GiftRedemptionService
                 ],
                 [
                     'id'    => self::STRATEGY_STACK_LOWER_FIRST,
-                    'label' => "{$tierLower} for {$daysLower} days, then {$tierHigher} for {$daysHigher} days",
+                    'label' => "Stacked: {$tierLower} for {$daysLower} days, then {$tierHigher} for {$daysHigher} days",
                     'tier_first'  => $tierLower,
                     'days_first'  => $daysLower,
                     'tier_second' => $tierHigher,
@@ -265,13 +265,13 @@ final class GiftRedemptionService
                 ],
                 [
                     'id'    => self::STRATEGY_PRORATE_TO_HIGHER,
-                    'label' => "All {$tierHigher} — " . ($daysHigher + $converted['lower_to_higher']) . ' days',
+                    'label' => "Prorated: all {$tierHigher} — " . ($daysHigher + $converted['lower_to_higher']) . ' days',
                     'tier'       => $tierHigher,
                     'total_days' => $daysHigher + $converted['lower_to_higher'],
                 ],
                 [
                     'id'    => self::STRATEGY_PRORATE_TO_LOWER,
-                    'label' => "All {$tierLower} — " . ($daysLower + $converted['higher_to_lower']) . ' days',
+                    'label' => "Prorated: all {$tierLower} — " . ($daysLower + $converted['higher_to_lower']) . ' days',
                     'tier'       => $tierLower,
                     'total_days' => $daysLower + $converted['higher_to_lower'],
                 ],
