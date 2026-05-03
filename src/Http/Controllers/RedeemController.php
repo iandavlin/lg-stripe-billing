@@ -55,6 +55,15 @@ final class RedeemController
             return self::json($response, ['error' => 'Code has already been redeemed.'], 409);
         }
 
+        // Email is stapled to the code: when the sender directed the gift
+        // to a specific recipient, that email is the only one this code can
+        // redeem under. Overrides whatever the form posted (frontend already
+        // marks the field readonly, this is defense-in-depth against
+        // DevTools tampering or non-browser clients).
+        if (!empty($giftCode->recipientEmail)) {
+            $email = (string) $giftCode->recipientEmail;
+        }
+
         $customer = $this->customers->findOrCreate($email, null, $name ?: null, null);
 
         if ($customer->isBlocked()) {
