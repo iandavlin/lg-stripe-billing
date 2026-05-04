@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use LGSB\Core\CheckoutService;
 use LGSB\Core\CustomerManager;
 use LGSB\Core\ReturnHandler;
+use LGSB\Domain\Repositories\EntitlementRepository;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Domain\Repositories\SubscriptionRepository;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -21,6 +22,7 @@ final class CheckoutController
         private readonly CustomerManager        $customers,
         private readonly ProductRepository      $products,
         private readonly SubscriptionRepository $subscriptions,
+        private readonly EntitlementRepository  $entitlements,
     ) {}
 
     /**
@@ -108,6 +110,32 @@ final class CheckoutController
                         'error'          => 'You already have an active subscription. Manage your plan from your account to upgrade, downgrade, or cancel — starting a second subscription would bill you twice.',
                         'has_active_sub' => true,
                     ], 409);
+                }
+
+                // Active-gift confirmation: if the customer is sitting on a
+                // pre-paid gift entitlement, surface that to them before
+                // they start a sub that will charge today even though their
+                // gift covers them. Cleared with acknowledged_active_gift=true.
+                $ackGift = !empty($body['acknowledged_active_gift']);
+                if (!$ackGift) {
+                    $activeGifts = $this->entitlements->activeGiftsForCustomer($existing->id);
+                    if ($activeGifts !== []) {
+                        $top = $activeGifts[0];
+                        $expiresAt = $top->expiresAt instanceof \DateTimeImmutable ? $top->expiresAt : null;
+                        $daysRemaining = 0;
+                        if ($expiresAt instanceof \DateTimeImmutable) {
+                            $diff = (new \DateTimeImmutable())->diff($expiresAt);
+                            $daysRemaining = max(0, (int) $diff->format('%r%a'));
+                        }
+                        return self::json($response, [
+                            'needs_gift_confirmation' => true,
+                            'active_gift' => [
+                                'tier'           => (string) $top->ref,
+                                'days_remaining' => $daysRemaining,
+                                'expires_at'     => $expiresAt ? $expiresAt->format('Y-m-d') : null,
+                            ],
+                        ]);
+                    }
                 }
             }
         }
