@@ -284,3 +284,22 @@ In dev as of 2026-05-04, looth1 is repurposed from lapsed paid member to starter
 WP plugin now shows a one-time celebratory modal in wp_footer when a user is upgraded into a paid tier (looth2+). Triggered by Arbiter setting `_lg_pending_welcome` user meta on the upgrade transition. Dismiss endpoint at `/lg-member-sync/v1/dismiss-welcome` (REST nonce auth).
 
 No cutover steps — the modal CSS/JS is inline in Plugin::maybePrintWelcomeModal, no external assets to deploy.
+
+## Webhook fast-path for orphan recovery
+
+The polling sweep above keeps worst-case recovery at ~5-6 minutes. To drop that to ~5-10 seconds, subscribe Stripe to push completed-checkout events:
+
+1. **Stripe Dashboard → Developers → Webhooks → edit the existing endpoint** at `/billing/v1/webhook`.
+2. **Add event** `checkout.session.completed` to the subscribed list.
+3. **Save.** No code change needed on prod — `WebhookController::handleCheckoutCompleted` is already wired.
+4. **Smoke test:** complete a checkout, kill the browser before the redirect, watch the entitlement appear within seconds (instead of waiting for the next polling tick).
+
+The webhook handler routes to the same idempotent `ReturnHandler::handle()` the polling sweep uses, so the two layers can both run on the same session safely. Polling stays as the safety net for any webhook deliveries Stripe drops.
+
+## Welcome email
+
+`LGMS\Wp\WelcomeMailer::sendIfNeeded` fires from `Arbiter::sync` on the looth1→paid-tier transition. Idempotency is guarded by the `_lg_welcome_email_sent_at` user meta — the email goes out exactly once per user even if Arbiter runs many times.
+
+Template lives at `templates/email/welcome-membership.html.php` in the WP plugin. Edit the body there; no other config required.
+
+If a customer needs the email re-sent (support recovery): `wp user meta delete <ID> _lg_welcome_email_sent_at` then trigger any sync (visit any page or run `wp cron event run lgms_poll_tick`).
