@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LGSB\Core;
 
 use DateTimeImmutable;
+use LGSB\Adapters\PdoPendingSessionRepository;
 use LGSB\Contracts\SettingsStore;
 use LGSB\Domain\Repositories\AdminActionLogRepository;
 use LGSB\Domain\Repositories\GiftCodeRepository;
@@ -38,6 +39,7 @@ class ReturnHandler
         private readonly SettingsStore                   $settings,
         private readonly AdminActionLogRepository        $auditLog,
         private readonly PendingGiftRecipientsRepository $pendingRecipients,
+        private readonly PdoPendingSessionRepository     $pending,
     ) {}
 
     /**
@@ -63,26 +65,32 @@ class ReturnHandler
 
         if ($mode === 'setup') {
             $checkoutType = (string) ($session->metadata->checkout_type ?? '');
-            return match ($checkoutType) {
+            $result = match ($checkoutType) {
                 'regional_verify' => $this->handleRegionalVerify($session),
                 default           => ['ok' => false, 'message' => "Unknown setup checkout type: {$checkoutType}."],
             };
-        }
-
-        if ($mode === 'payment') {
+        } elseif ($mode === 'payment') {
             $checkoutType = (string) ($session->metadata->checkout_type ?? '');
-            return match ($checkoutType) {
+            $result = match ($checkoutType) {
                 'gift'              => $this->handleGift($session),
                 'membership_annual' => $this->handleOneTimeMembership($session),
                 default             => ['ok' => false, 'message' => "Unknown payment checkout type: {$checkoutType}."],
             };
+        } elseif ($mode === 'subscription') {
+            $result = $this->handleSubscription($session);
+        } else {
+            $result = ['ok' => false, 'message' => "Unhandled checkout mode: {$mode}."];
         }
 
-        if ($mode !== 'subscription') {
-            return ['ok' => false, 'message' => "Unhandled checkout mode: {$mode}."];
+        // Mark the pending_sessions row resolved iff provisioning succeeded.
+        // Failures leave the row unresolved so the cron sweep can retry it
+        // on subsequent passes (e.g. transient WP unreachability resolves
+        // on its own without manual intervention).
+        if ($result['ok'] ?? false) {
+            $this->pending->markResolved($sessionId, 'returned');
         }
 
-        return $this->handleSubscription($session);
+        return $result;
     }
 
     /**

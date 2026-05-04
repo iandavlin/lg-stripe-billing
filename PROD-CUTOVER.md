@@ -244,3 +244,43 @@ Verify after cutover: a 2-code purchase in direct mode with two real test mailbo
 - [ ] As an active subscriber, attempt a gift redemption — confirm 409 with portal link
 - [ ] As a customer, switch plans on `/manage-subscription/` (both "now" and "at renewal" timings)
 - [ ] As an admin, run the guardrail test once on dev to catch any prod-config drift: `wp eval-file /tmp/guardrail-test.php`
+
+## Pending-session reconciliation (orphan recovery)
+
+Background: Stripe Embedded Checkout's parent-page redirect to /v1/return is fragile — modal close, browser crash, network drop, or phone sleep between Pay click and redirect leaves the customer charged on Stripe with no entitlement on our side.
+
+The fix is server-side reconciliation: `pending_sessions` table records every Stripe Checkout session we create; `/v1/reconcile-pending` endpoint sweeps unresolved rows older than 60 seconds, polls Stripe, and runs ReturnHandler::handle() server-side to provision. WP plugin Tick::run() calls this endpoint every cron tick (now 5 min instead of hourly).
+
+### Cutover steps
+
+1. **Run migration 008**: `mysql ... < db/migrations/008_pending_sessions.sql` on prod DB. Creates the `pending_sessions` table.
+2. **Verify the LGMS_SHARED_SECRET env var matches** between Slim's `.env` and WP's `lgms_shared_secret` option. The reconcile endpoint authenticates via X-LGMS-Token header.
+3. **WP plugin re-schedules the cron event automatically** on first request after deploy via `Plugin::maybeRescheduleCron`. Verify with:
+   ```
+   wp eval 'echo wp_get_schedule(lgms_poll_tick);' --path=/var/www
+   # expected: lgms_5min
+   ```
+4. **OS cron must be hitting wp-cron.php at >5 min cadence** for the reconcile sweep to actually fire. Check: `crontab -l | grep wp-cron`. If only running hourly, add a 5-minute job:
+   ```
+   */5 * * * * cd /var/www && /usr/bin/php wp-cron.php > /dev/null 2>&1
+   ```
+5. **No Stripe Dashboard config change is required** — we are not subscribing to checkout.session.completed at this time. The pending_sessions sweep is sufficient.
+6. **Optional smoke test**: complete a checkout, kill the browser before the redirect, wait 5 minutes, verify entitlement appears in DB.
+
+## looth1 role rework (starter tier, not lapsed)
+
+In dev as of 2026-05-04, looth1 is repurposed from lapsed paid member to starter tier signed up but not paid. This requires:
+
+1. **Deactivate code-snippets snippet #90** (Log Out Looth 1 Users Immediately) on prod. It force-logs-out any looth1 user on login. Use:
+   ```
+   wp db query 'UPDATE wp_snippets SET active=0 WHERE id=90' --path=/var/www
+   ```
+   Snippets #88 and #89 (also looth1 lockouts) are already inactive on dev; verify same on prod.
+2. **Configure looth1 BuddyBoss permissions** in BB role settings: gate premium content, allow forum read access, basic site browsing. The plugin no longer demotes looth1 to customer on gift-auth login (RestController.php giftAuth() change).
+3. **Audit any FluentCRM segments / automations / we miss you emails** that target looth1. They will now hit never-paid signups too. Re-target as needed (e.g. WHERE `role = looth1` AND `registered_via_lapse_path`).
+
+## Welcome modal
+
+WP plugin now shows a one-time celebratory modal in wp_footer when a user is upgraded into a paid tier (looth2+). Triggered by Arbiter setting `_lg_pending_welcome` user meta on the upgrade transition. Dismiss endpoint at `/lg-member-sync/v1/dismiss-welcome` (REST nonce auth).
+
+No cutover steps — the modal CSS/JS is inline in Plugin::maybePrintWelcomeModal, no external assets to deploy.

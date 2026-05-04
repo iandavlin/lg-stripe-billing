@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace LGSB\Core;
 
 use InvalidArgumentException;
+use LGSB\Adapters\PdoPendingSessionRepository;
 use LGSB\Contracts\SettingsStore;
 use LGSB\Domain\Repositories\PendingGiftRecipientsRepository;
 use LGSB\Domain\Repositories\ProductRepository;
@@ -19,6 +20,7 @@ class CheckoutService
         private readonly ProductRepository               $products,
         private readonly CustomerManager                 $customers,
         private readonly PendingGiftRecipientsRepository $pendingRecipients,
+        private readonly PdoPendingSessionRepository     $pending,
     ) {}
 
     /**
@@ -50,6 +52,7 @@ class CheckoutService
         $this->attachCustomer($params, $email, $country, $name);
 
         $session = $this->stripe->createCheckoutSession($params);
+        $this->pending->record((string) $session->id, 'subscription');
         return ['clientSecret' => (string) $session->client_secret];
     }
 
@@ -99,6 +102,7 @@ class CheckoutService
         $this->attachCustomer($params, $email, $country, $name);
 
         $session = $this->stripe->createCheckoutSession($params);
+        $this->pending->record((string) $session->id, 'one_time');
         return ['clientSecret' => (string) $session->client_secret];
     }
 
@@ -225,6 +229,7 @@ class CheckoutService
         }
 
         $session = $this->stripe->createCheckoutSession($params);
+        $this->pending->record((string) $session->id, 'gift');
 
         // Persist the recipient list keyed by the just-minted Stripe session ID
         // so handleGift() on /v1/return can pair them with the generated codes.
@@ -300,6 +305,7 @@ class CheckoutService
         ];
 
         $session = $this->stripe->createCheckoutSession($params);
+        $this->pending->record((string) $session->id, 'regional_verify');
         return ['clientSecret' => (string) $session->client_secret];
     }
 
