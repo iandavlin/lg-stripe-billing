@@ -1,16 +1,80 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-05-02 (session 9)*
+*Last worked: 2026-05-04 (session 11)*
 
-## NEXT — Tier 2 gift mgmt OR `charge.refunded` OR prod cutover
+## NEXT — push to hub, browser-test the new flow, then prod cutover
 
-What's left in priority order:
+The orphan-charge recovery architecture landed end-to-end this session: pending_sessions table, polling sweep, checkout.session.completed webhook fast-path, looth1 starter tier, welcome modal, welcome email. All committed locally on dev. What's left in priority order:
 
-1. **Tier 2 gift management** — buyer self-service dashboard. Magic-link auth from the buyer-summary email gives access to `[lg_my_gifts]`: list of all codes purchased, redemption status per code, "resend" button per unredeemed code, "edit recipient" before redemption. Notification to the buyer when each recipient redeems. Tier 1 (this session) shipped the data model + per-recipient email pipeline; Tier 2 builds on it.
-2. **`charge.refunded` webhook** — register the event in Stripe + verify our handler revokes immediately. Currently unverified per session 6 notes.
-3. **Production cutover** — clean greenfield deploy. See full checklist in PROD-CUTOVER.md.
+1. **Push the dev branches to hub.** Slim has 6 commits ahead of origin/main; WP plugin has 43 commits ahead. Nothing urgent — code is deployed and working on dev — but next contributor should pull a synced repo.
+2. **Real-browser end-to-end test of the new flow.** Specifically the failure paths:
+   - Subscribe via `/lgjoin/`, click Pay, **close the browser tab before redirect**. Within ~5–10s of that close the webhook should fire → entitlement created, role upgraded, welcome email sent. Confirm the email lands in your inbox.
+   - Open the site again later: welcome modal should slide in on first WP page load and dismiss button should clear it.
+   - Run the same scenario for `/lggift-buy/` (one-time gift purchase). Gift codes email goes out via the existing GiftMailer; welcome modal/email do NOT fire (gifts don't promote tier).
+3. **`charge.refunded` webhook** — still unverified per session 6 notes. Register the event in Stripe + verify our handler revokes immediately.
+4. **Tier 2 Phase D (gift management buttons)** — Send / Resend / Reassign / Void wiring on the `[lg_my_gifts]` dashboard. Slim endpoints already shipped (45680f7 / 209eb88); WP-side UI is still stubbed.
+5. **Tier 2 Phase C (auto-account creation for non-member gift buyers)** — qty ≥ 4 "create login + manage from dashboard" mode. Hooks into existing `dashboard_mode=1` Slim path; only new piece is WP-side `wp_insert_user` + credentials email.
+6. **Production cutover.** PROD-CUTOVER.md has been substantially expanded this session. New mandatory steps: migration 008 (pending_sessions), 5-min OS cron entry for wp-cron.php (otherwise the polling sweep never fires unattended), `checkout.session.completed` event added in Stripe Dashboard, snippet #90 deactivated, looth1 BuddyBoss permissions configured for the starter-tier semantics.
 
-## What shipped in session 9 (this one)
+## What shipped in session 11 (this one)
+
+### Orphan-charge recovery architecture (Slim + WP)
+
+The recurring symptom: customer pays through Stripe, browser dies between Pay click and the `/v1/return` redirect (modal close, network drop, crash, phone sleep), Stripe records the charge, our DB records nothing. Stripe documentation explicitly recommends not relying on the landing page for fulfillment; this session builds the recommended hybrid.
+
+**Slim (`lg-stripe-billing`)**
+
+- **Migration 008** `pending_sessions` table — records every Stripe Checkout session at creation time, marks resolved on successful provisioning. Three columns + a unique index on `session_id`.
+- **`PdoPendingSessionRepository`** — `record() / markResolved() / touchPolled() / listUnresolvedOlderThan() / pruneOlderThan()`.
+- **`CheckoutService`** — every session-creation method (subscription, one-time, gift, regional-setup) calls `pending->record()` after Stripe returns. Five callsites, each with a kind tag for audit clarity.
+- **`ReturnHandler::handle`** — rewrapped to capture the per-mode result, then `pending->markResolved($id, 'returned')` on success. Failure paths leave the row unresolved so the cron sweep can retry.
+- **`/v1/reconcile-pending` (`ReconciliationController`)** — auth'd via `X-LGMS-Token`; sweeps unresolved rows older than 60s, polls Stripe per row, dispatches `ReturnHandler::handle` for completed sessions, marks expired rows abandoned, leaves open rows for the next sweep. Prunes resolved rows older than 7 days each pass.
+- **`WebhookController::handleCheckoutCompleted`** — new case in the dispatch match. Routes to the same idempotent `ReturnHandler::handle`, so the webhook fast-path and the cron polling sweep both converge on the same provisioning logic. Errors are swallowed and logged so we always return 200 to Stripe (no exponential-backoff retries masking real causes).
+- **Subscribed dev's webhook to `checkout.session.completed`** via Stripe API.
+
+**WP plugin (`lg-patreon-stripe-poller`)**
+
+- **`Tick.php` Pass 1.7** — POST to `/v1/reconcile-pending` every cron tick. Uses raw `curl` with `CURLOPT_RESOLVE` pinned to 127.0.0.1 (mirroring the same trick `WpSync` uses for the reverse direction; `wp_remote_post` would hit the Cloudflare bot-challenge that intercepts loopback PHP-curl requests).
+- **5-minute custom cron schedule** (`lgms_5min`) registered via `cron_schedules` filter. `Plugin::CRON_SCHEDULE` flipped from `hourly`. `Plugin::maybeRescheduleCron` (init priority 99) self-heals existing installs that were scheduled on the old interval — no deactivate/reactivate needed.
+
+### looth1 role rework — starter tier instead of lapsed-paid
+
+Previously `looth1` was reserved for users who lapsed out of a paid tier; gift-auth signups landed in the legacy WC `customer` role with no member access. Bailed-checkout users ended up with an account that did nothing useful. New model: `looth1` is the starter tier from sign-up; Arbiter promotes to `looth2/3/4` on paid entitlement.
+
+- **Code-snippets snippet #90** ("Log Out Looth 1 Users Immediately") **deactivated**. Snippets #88 and #89 (older lockout iterations) were already inactive.
+- **`RestController::giftAuth`** — new accounts mint as `looth1` (was `customer`). Existing-user login no longer demotes `looth1 → customer` (was a yo-yo pattern under the new model). Docstring updated.
+- **`Arbiter::sync`** — captures the old tier before the role-rewrite, detects `looth1 → looth2/3/4` upgrade transitions. On detection, sets `_lg_pending_welcome` user meta and fires `WelcomeMailer::sendIfNeeded`.
+
+### Welcome modal + welcome email
+
+- **`Plugin::maybePrintWelcomeModal`** (`wp_footer` hook) — renders a one-shot celebratory modal when `_lg_pending_welcome` is set. Slides up from bottom over a dimmed backdrop, max z-index, amber accent matching site style. Skips wp-admin / AJAX / `/welcome/` itself. Two actions: "Manage subscription" link and "Got it →" dismiss.
+- **`/lg-member-sync/v1/dismiss-welcome`** REST endpoint — clears the meta on dismiss. Auth: logged-in user + REST nonce.
+- **`LGMS\Wp\WelcomeMailer::sendIfNeeded($wpUserId, $tier)`** — fires from `Arbiter::sync` on the same upgrade transition. Idempotent via separate `_lg_welcome_email_sent_at` user meta sentinel — exactly one email per user even across many cron passes. Template at `templates/email/welcome-membership.html.php` (amber-accented HTML matching the modal).
+
+### Checkout UX polish (committed earlier in the session)
+
+- **Subtle password reveal** — replaced the default browser button on `/lgjoin/` (which rendered as a giant blue square via the BB theme button styling) with an inline heroicons-style eye SVG inside the input. Password and Confirm-password inputs now share form grid columns so they line up with email and profile-name above. CSS that was scoped under `[lg_gift]`'s style block is now duplicated into the `[lg_join]` style block so the rules actually apply.
+- **Post-pay processing overlay** — Stripe `onComplete` triggers a fullscreen overlay until the redirect lands.
+- **Modal lockdown** once the iframe is mounted (`data-lg-locked="1"`) — X button hidden, backdrop click-through. Pre-mount the X still works so users can back out before committing.
+- **`beforeunload` removed on `onComplete`** so Stripe's intended redirect doesn't trigger the "Leave site?" prompt.
+
+These are belt-and-suspenders measures; the orphan-recovery architecture is the actual safety net. They reduce the likelihood of needing to fall back to it.
+
+### Architecture / debug fixes shipped along the way
+
+- **Rewrite flush deferred to `init` priority 9999** (`Plugin.php` + `lg-patreon-onboard.php` + `Pages.php`). Both activation hooks were calling `flush_rewrite_rules()` mid-activation before `init` had fired, serializing partial rule sets into the `rewrite_rules` option and producing intermittent 404s on top-level pages. Activation hooks now set a transient flag; the deferred handler flushes once on the next `init` after every plugin has registered its rules. `Pages::ensureAll` only sets the flag when state actually changed; `wp_cache_flush()` replaced with targeted `wp_cache_delete('alloptions', 'options')` to avoid global cache wipes mid-request.
+- **Admin-pages 502 root cause:** Ian's admin user (`iandavlin`, id 1) had triple role stacking — `administrator + looth2 + bbp_participant` — which caused FPM segfault-class behavior on every regular page render (homepage worked because `is_front_page()` short-circuits a lot of chrome). Stripped to `administrator + bbp_keymaster`; pages now render. Worth flagging on prod for any other admins with stacked roles.
+- **`pending_sessions` reconcile cURL bypass** — `wp_remote_post` to `/billing/v1/reconcile-pending` hit Cloudflare's bot challenge (HTTP 403 challenge page). Replaced with raw cURL + `CURLOPT_RESOLVE → 127.0.0.1`.
+- **Test-account hygiene** — `ianhatesguitars@*` accounts and customer 32/33/34/35/36/40 nuked across multiple cycles; ian.davlin de-gifted (gift_codes purchased/redeemed, gift-source entitlements, `_lgms_has_gifts` meta cleared); orphaned Stripe subs canceled. Documented the pattern for future cleanups.
+
+### Lessons / things-worth-remembering
+
+- **Stripe Embedded Checkout's parent-page redirect is fundamentally fragile.** Anything that kills the iframe between Pay-click and the redirect (modal close, browser crash, network drop) leaves you charged but unfulfilled. Stripe's docs recommend `checkout.session.completed` webhook for fulfillment, with `return_url` as a UX-only confirmation page. We now do both.
+- **WP cron only fires when WordPress serves a request.** `/billing/...` curls bypass WP entirely (it's Slim under nginx alias) and don't trigger `wp-cron.php`. Without OS cron hitting `wp-cron.php`, the dev box's polling sweep never fires unattended. PROD-CUTOVER step 4 makes this explicit for prod.
+- **Forever-valid magic links are a defensible product choice** for a membership site. The prior magic-link refactor option was deferred in favor of pre-Stripe auth + post-pay welcome modal/email — simpler code path, account exists with the password the user typed, no token expiry to manage.
+- **Triple-stacked WP roles can cause silent FPM crashes.** `administrator + looth2 + bbp_participant` was producing 502 on every non-front-page render until trimmed.
+
+## What shipped in session 9
 
 ### Gift page redesign (committed early)
 - `[lg_gift]` rebuilt: centered container (fixed "crushed left"), tier cards with "Most popular" badge, − [n] + quantity stepper, preset chips (1/10/20/50 with discount tags), live progress bar to next bulk tier, pricing summary card with savings callout, dynamic CTA ("Continue to checkout · 10 codes · $540"), trust line.
