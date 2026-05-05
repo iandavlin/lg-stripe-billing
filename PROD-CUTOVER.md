@@ -43,7 +43,7 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 - [ ] `LGMS_SHARED_SECRET` — generate fresh secret, match in WP plugin settings
 - [ ] `BULK_DISCOUNT_TIERS` — confirm tiers with Ian before go-live (dev currently `5:5,10:10,20:20,50:30`)
 - [ ] `APP_REGIONAL_FAIL_URL` — URL of the WP page hosting `[lg_regional_fail]` (falls back to `APP_HOME_URL` if unset). Default plugin slug: `https://loothgroup.com/regional-pricing-not-available/`
-- [ ] `APP_RETURN_SUCCESS_URL` — URL of the WP page hosting `[lg_subscription_success]` (falls back to `APP_HOME_URL` if unset). Default plugin slug: `https://loothgroup.com/welcome/`
+- [ ] `APP_RETURN_SUCCESS_URL` — post-checkout landing page. Set to the BuddyBoss activity feed: `https://loothgroup.com/activity/`. The plugin's `Plugin::maybePrintWelcomeModal` overlays a celebratory modal there when `_lg_pending_welcome` user meta is set; dismiss button clears the meta. The legacy `[lg_subscription_success]` shortcode + `/welcome/` page are retained but no longer the default landing.
 - [ ] `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` — prod DB
 
 ## BuddyBoss Public Content Allow List
