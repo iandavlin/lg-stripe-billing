@@ -1,20 +1,86 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-05-04 (session 11)*
+*Last worked: 2026-05-05 (session 12)*
 
-## NEXT — push to hub, browser-test the new flow, then prod cutover
+## NEXT — Stripe Acacia → Basil migration + `lg_join` switch to `ui_mode: 'custom'`
 
-The orphan-charge recovery architecture landed end-to-end this session: pending_sessions table, polling sweep, checkout.session.completed webhook fast-path, looth1 starter tier, welcome modal, welcome email. All committed locally on dev. What's left in priority order:
+The motivating problem: the close-X on the join modal still has UX warts. The current `ui_mode: 'embedded'` integration mounts Stripe's iframe inside our modal, and Stripe's SDK exposes **no "user clicked Pay" event** — the only callback is `onComplete`, which fires *after* successful payment. So we have to choose between (a) hiding the X immediately on mount (felt trapy — user couldn't back out at all) or (b) leaving the X live until `onComplete` (user can close *after* hitting Pay, briefly orphaning the charge — orphan-charge recovery from session 11 handles it on the server, but the in-page UX is muddled). Neither is clean.
 
-1. **Push the dev branches to hub.** Slim has 6 commits ahead of origin/main; WP plugin has 43 commits ahead. Nothing urgent — code is deployed and working on dev — but next contributor should pull a synced repo.
-2. **Real-browser end-to-end test of the new flow.** Specifically the failure paths:
+**Stripe shipped exactly what we need on 2025-03-31 in Basil**: `ui_mode: 'custom'` + `stripe.initCheckoutElementsSdk({clientSecret})` lets us build the form ourselves with Stripe Elements, render our own Pay button, and call `actions.confirm()` from the click handler. We get the exact "Pay clicked" signal we've been missing — hide the X, lock the modal, show processing — all in our own code.
+
+### Concrete plan
+
+1. **Audit pass (read-only)** — grep for breaking-change surfaces from Acacia → Basil before bumping the pin:
+   - `RefundWebhookHandler` — Basil no longer creates Refund objects for partial captures or payment cancellations. Verify our handler doesn't depend on the old shape.
+   - `SubscriptionWebhookHandler` — Basil creates subs in `incomplete` status when first payment fails (Acacia would refuse the create). Add handling for `incomplete` and `incomplete_expired`.
+   - "Upcoming Invoice" API → "Create Preview" API. Search for `Invoice.upcoming` / `upcoming_invoice` in the manage-subscription plan-switch flow.
+   - Legacy usage-based billing — confirm we don't use it (we shouldn't).
+2. **Bump the API version pin** in `LiveStripeGateway.php:18` from `2024-12-18.acacia` to `2025-03-31.basil` (or later). Smoke test all four flows on dev (sub, regional sub, one-time, gift) before doing the UI work.
+3. **Server-side**: in `CheckoutService::createSubscriptionSession`, switch `ui_mode` from `'embedded'` to `'custom'`. Same `subscription_data.trial_end` + `discounts` + `allow_promotion_codes` should pass through unchanged (verify during dev test).
+4. **Client-side rewrite of the `lg_join` Stripe-mount section** in `Shortcodes.php` (around line 2362):
+   - Replace `stripe.initEmbeddedCheckout(…)` with `stripe.initCheckoutElementsSdk({clientSecret})`.
+   - Mount `paymentElement` (and `addressElement` if we want billing details collected — required for some payment methods + 3DS).
+   - Render our own Pay button INSIDE the modal (not in the iframe).
+   - Listen for `checkout.on('change', …)` to disable the Pay button until `session.canConfirm`.
+   - On Pay click: hide the X (`joinCheckoutModal.dataset.lgLocked = '1'`), call `actions.confirm()`, handle the result (`error` → re-show X + show Stripe error; otherwise Stripe redirects to `return_url`).
+5. **Keep `[lg_gift]` on `ui_mode: 'embedded'` for now.** Less critical UX, no modal-close trap (gift mounts inline). Migrate later if we want a unified codebase.
+6. **End-to-end test on dev**:
+   - Subscribe with valid card → success → entitlement + welcome email
+   - Subscribe with `4000 0027 6000 3184` (3DS-required) → SCA challenge → success
+   - Subscribe with `4000 0000 0000 0002` (declined) → `actions.confirm()` returns error → user sees inline message, X re-enabled, can retry
+   - Subscribe with regional price (price_1TSEZsHg6gcIV22bPj46CI94 + IN address) → Setup intent path still works
+   - Subscribe with active prepaid time → `trial_end` honored
+   - Promo code → discount applied
+7. **Commit + update PICKUP** with session 13 wrap.
+
+### Estimated scope
+~half-day focused work. Most of it is the Elements form layout + smoke testing the breaking changes. Refactor is contained to one shortcode + one Slim service method + the SDK pin.
+
+### Reference material from session 12 research
+- Stripe changelog: [Adds custom UI mode to Checkout Sessions (2025-03-31)](https://docs.stripe.com/changelog/basil/2025-03-31/add-checkout-session-custom-ui-mode)
+- Stripe.js custom checkout events: https://docs.stripe.com/js/custom_checkout/events
+- GitHub issue #604 confirming no `onSubmit` for embedded: https://github.com/stripe/stripe-js/issues/604
+- Stripe API upgrades index: https://docs.stripe.com/upgrades
+
+### Other outstanding items (lower priority)
+
+1. **Real-browser end-to-end test of the orphan-charge recovery flow.** Specifically the failure paths from session 11:
    - Subscribe via `/lgjoin/`, click Pay, **close the browser tab before redirect**. Within ~5–10s of that close the webhook should fire → entitlement created, role upgraded, welcome email sent. Confirm the email lands in your inbox.
-   - Open the site again later: welcome modal should slide in on first WP page load and dismiss button should clear it.
-   - Run the same scenario for `/lggift-buy/` (one-time gift purchase). Gift codes email goes out via the existing GiftMailer; welcome modal/email do NOT fire (gifts don't promote tier).
-3. **`charge.refunded` webhook** — still unverified per session 6 notes. Register the event in Stripe + verify our handler revokes immediately.
-4. **Tier 2 Phase D (gift management buttons)** — Send / Resend / Reassign / Void wiring on the `[lg_my_gifts]` dashboard. Slim endpoints already shipped (45680f7 / 209eb88); WP-side UI is still stubbed.
-5. **Tier 2 Phase C (auto-account creation for non-member gift buyers)** — qty ≥ 4 "create login + manage from dashboard" mode. Hooks into existing `dashboard_mode=1` Slim path; only new piece is WP-side `wp_insert_user` + credentials email.
-6. **Production cutover.** PROD-CUTOVER.md has been substantially expanded this session. New mandatory steps: migration 008 (pending_sessions), 5-min OS cron entry for wp-cron.php (otherwise the polling sweep never fires unattended), `checkout.session.completed` event added in Stripe Dashboard, snippet #90 deactivated, looth1 BuddyBoss permissions configured for the starter-tier semantics.
+   - Welcome modal slides in on first subsequent WP page load; dismiss button clears it.
+2. **`charge.refunded` webhook** — handler is in code (registered for the dev endpoint). Register on prod when cutting over. PROD-CUTOVER.md already lists it.
+3. **Tier 2 Phase D (gift management buttons)** — Send / Resend / Reassign / Void wiring on the `[lg_my_gifts]` dashboard. Slim endpoints already shipped (45680f7 / 209eb88); WP-side UI is still stubbed.
+4. **Tier 2 Phase C (auto-account creation for non-member gift buyers)** — qty ≥ 4 "create login + manage from dashboard" mode. Hooks into existing `dashboard_mode=1` Slim path; only new piece is WP-side `wp_insert_user` + credentials email.
+5. **Production cutover.** PROD-CUTOVER.md has the full checklist.
+
+## What shipped in session 12 (this one)
+
+### Recovery operation (started the session deep in a hole)
+
+Discovered mid-session that prior `scp` deploys had been overwriting commits on dev that never made it back to local or GitHub. Dev's `.git` had ~6 Slim commits and ~43 WP plugin commits ahead of origin (the orphan-charge architecture, looth1 starter tier, welcome modal, password UX, etc.) that the local working tree had no knowledge of. Each new `scp` from local to dev was clobbering those commits' deployed files.
+
+Recovery:
+- Snapshotted dev's clobbered uncommitted diff (641KB WP + 28KB Slim) to `_recovery_20260505_074347/` for forensics.
+- Restored dev's working tree to committed HEAD via `git checkout HEAD -- <files>` (preserved untracked new files).
+- Pushed dev's commits to GitHub (Slim required a small merge with origin's PICKUP-only diverging commits, then push).
+- Pulled to local — local + dev + GitHub now all in sync.
+- Removed orphan files I'd added on top of dev (`RefundWebhookHandler.php`, `WpCustomerMailer.php`, `AccessStatusController.php`, `customer-notice.html.php`) — they were trying to bolt onto the architecture I'd assumed existed (which was actually the older state). Saved them to `_recovery_*/orphan_files/` for later evaluation against the recovered architecture.
+
+**Lesson:** session 12 wrote a memory at `~/.claude/projects/.../memory/process_deploy_via_pull_not_scp.md` (or should — see PICKUP-NOTE) about always `git pull` on dev before deploying, never `scp` files into a git checkout without first verifying local is at or ahead of dev's HEAD.
+
+### `[lg_join]` form polish
+
+After recovery, the only code shipped this session was UX polish on the join page. All committed (`fa3b78a` or similar — see git log).
+
+- **Confirm-email field** added next to email; live "Emails don't match." mirror of the existing password-mismatch UX.
+- **Form reorder** — was Email | Profile name | Password | Confirm password. Now: Email | Confirm email / Password | Confirm password / Profile name (full-width, spans both columns via `grid-column: 1 / -1`).
+- **Default tier selection on page load** — `[lg_join]` opens with the popular tier's yearly price pre-selected (form panel revealed, button shows orange selected state). `selectPrice()` gained a `{ silent: true }` opt to skip scroll-into-view + auto-focus when the auto-pick fires, so the tier cards stay visible above the form on initial render.
+- **Button visual treatment** in `assets/lg-shortcodes.css`:
+  - All `.lg-join__buy` get a baseline drop shadow (raised, clickable look).
+  - `.lg-join__buy.is-primary` (suggested yearly): enhanced amber-tinted shadow + 1px lift, but no orange fill. Pulls the eye without claiming the spotlight.
+  - `.lg-join__buy.is-selected`: full orange + white text. Unmistakable. Applied via JS to whichever button the user clicks (clears all sibling `.is-selected` across all tier cards so only one across the whole page is active).
+- **X stays live until `onComplete`** — `joinCheckoutModal.dataset.lgLocked = '1'` and `markJoinPaymentInFlight()` moved out of "right after `mountedSession.mount()`" into `showJoinProcessingOverlay()` (which Stripe fires via `onComplete` only after a successful charge). Until that runs, the X / Esc / backdrop all work normally so users can back out cleanly. Orphan-charge recovery still catches the close-after-Pay edge case so even if they close mid-redirect they get their sub.
+- **Existing-account modal markup duplicated into `[lg_join]`.** It used to live only inside `[lg_gift]` (line 472), so pages hosting only `[lg_join]` had no DOM for the modal to attach to — `existAcctModal` was `null` and the "this email already has an account" prompt silently no-op'd. Now both shortcodes render their own copy with distinct `aria-labelledby` IDs.
+- **`LGPO_VERSION` 2.0.0 → 2.0.4** for cache-busting across each polish iteration.
 
 ## What shipped in session 11 (this one)
 
