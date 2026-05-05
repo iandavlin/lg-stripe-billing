@@ -1,56 +1,71 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-05-05 (session 12)*
+*Last worked: 2026-05-05 (session 13)*
 
-## NEXT — Stripe Acacia → Basil migration + `lg_join` switch to `ui_mode: 'custom'`
+## NEXT — End-to-end smoke test of all four custom-mode flows on dev
 
-The motivating problem: the close-X on the join modal still has UX warts. The current `ui_mode: 'embedded'` integration mounts Stripe's iframe inside our modal, and Stripe's SDK exposes **no "user clicked Pay" event** — the only callback is `onComplete`, which fires *after* successful payment. So we have to choose between (a) hiding the X immediately on mount (felt trapy — user couldn't back out at all) or (b) leaving the X live until `onComplete` (user can close *after* hitting Pay, briefly orphaning the charge — orphan-charge recovery from session 11 handles it on the server, but the in-page UX is muddled). Neither is clean.
+Session 13 shipped the full Acacia → Basil migration and `ui_mode: 'custom'` for all four checkout flows. The code is deployed to dev but the non-subscription flows (one-time annual, gift, regional verify) haven't been fully browser smoke-tested under custom mode. Do this before any other feature work.
 
-**Stripe shipped exactly what we need on 2025-03-31 in Basil**: `ui_mode: 'custom'` + `stripe.initCheckoutElementsSdk({clientSecret})` lets us build the form ourselves with Stripe Elements, render our own Pay button, and call `actions.confirm()` from the click handler. We get the exact "Pay clicked" signal we've been missing — hide the X, lock the modal, show processing — all in our own code.
+### Test matrix (do all four)
 
-### Concrete plan
-
-1. **Audit pass (read-only)** — grep for breaking-change surfaces from Acacia → Basil before bumping the pin:
-   - `RefundWebhookHandler` — Basil no longer creates Refund objects for partial captures or payment cancellations. Verify our handler doesn't depend on the old shape.
-   - `SubscriptionWebhookHandler` — Basil creates subs in `incomplete` status when first payment fails (Acacia would refuse the create). Add handling for `incomplete` and `incomplete_expired`.
-   - "Upcoming Invoice" API → "Create Preview" API. Search for `Invoice.upcoming` / `upcoming_invoice` in the manage-subscription plan-switch flow.
-   - Legacy usage-based billing — confirm we don't use it (we shouldn't).
-2. **Bump the API version pin** in `LiveStripeGateway.php:18` from `2024-12-18.acacia` to `2025-03-31.basil` (or later). Smoke test all four flows on dev (sub, regional sub, one-time, gift) before doing the UI work.
-3. **Server-side**: in `CheckoutService::createSubscriptionSession`, switch `ui_mode` from `'embedded'` to `'custom'`. Same `subscription_data.trial_end` + `discounts` + `allow_promotion_codes` should pass through unchanged (verify during dev test).
-4. **Client-side rewrite of the `lg_join` Stripe-mount section** in `Shortcodes.php` (around line 2362):
-   - Replace `stripe.initEmbeddedCheckout(…)` with `stripe.initCheckoutElementsSdk({clientSecret})`.
-   - Mount `paymentElement` (and `addressElement` if we want billing details collected — required for some payment methods + 3DS).
-   - Render our own Pay button INSIDE the modal (not in the iframe).
-   - Listen for `checkout.on('change', …)` to disable the Pay button until `session.canConfirm`.
-   - On Pay click: hide the X (`joinCheckoutModal.dataset.lgLocked = '1'`), call `actions.confirm()`, handle the result (`error` → re-show X + show Stripe error; otherwise Stripe redirects to `return_url`).
-5. **Keep `[lg_gift]` on `ui_mode: 'embedded'` for now.** Less critical UX, no modal-close trap (gift mounts inline). Migrate later if we want a unified codebase.
-6. **End-to-end test on dev**:
-   - Subscribe with valid card → success → entitlement + welcome email
-   - Subscribe with `4000 0027 6000 3184` (3DS-required) → SCA challenge → success
-   - Subscribe with `4000 0000 0000 0002` (declined) → `actions.confirm()` returns error → user sees inline message, X re-enabled, can retry
-   - Subscribe with regional price (price_1TSEZsHg6gcIV22bPj46CI94 + IN address) → Setup intent path still works
-   - Subscribe with active prepaid time → `trial_end` honored
-   - Promo code → discount applied
-7. **Commit + update PICKUP** with session 13 wrap.
-
-### Estimated scope
-~half-day focused work. Most of it is the Elements form layout + smoke testing the breaking changes. Refactor is contained to one shortcode + one Slim service method + the SDK pin.
-
-### Reference material from session 12 research
-- Stripe changelog: [Adds custom UI mode to Checkout Sessions (2025-03-31)](https://docs.stripe.com/changelog/basil/2025-03-31/add-checkout-session-custom-ui-mode)
-- Stripe.js custom checkout events: https://docs.stripe.com/js/custom_checkout/events
-- GitHub issue #604 confirming no `onSubmit` for embedded: https://github.com/stripe/stripe-js/issues/604
-- Stripe API upgrades index: https://docs.stripe.com/upgrades
+1. **Subscription** — `/lgjoin/`, pick yearly LITE, valid card `4242 4242 4242 4242` → Pay → success redirect to `/activity/` → entitlement + role upgrade + welcome email
+2. **3DS subscription** — same path, use `4000 0027 6000 3184` → SCA challenge pops in Payment Element iframe → approve → success
+3. **Declined subscription** — `4000 0000 0000 0002` → `confirm()` returns error → inline error shown, X re-enabled, can retry
+4. **One-time annual** — pick a one-time price (non-recurring) → custom mode `payment` session → success
+5. **Gift** — `/lggift/`, qty 2, confirm custom modal appears, Pay → success → 2 gift codes generated
+6. **Regional verify** — use `?country=IN` → setup mode → custom modal → enter IN card `4000 0035 6000 0008` → billing India → pass → subscription created
 
 ### Other outstanding items (lower priority)
 
-1. **Real-browser end-to-end test of the orphan-charge recovery flow.** Specifically the failure paths from session 11:
-   - Subscribe via `/lgjoin/`, click Pay, **close the browser tab before redirect**. Within ~5–10s of that close the webhook should fire → entitlement created, role upgraded, welcome email sent. Confirm the email lands in your inbox.
-   - Welcome modal slides in on first subsequent WP page load; dismiss button clears it.
-2. **`charge.refunded` webhook** — handler is in code (registered for the dev endpoint). Register on prod when cutting over. PROD-CUTOVER.md already lists it.
-3. **Tier 2 Phase D (gift management buttons)** — Send / Resend / Reassign / Void wiring on the `[lg_my_gifts]` dashboard. Slim endpoints already shipped (45680f7 / 209eb88); WP-side UI is still stubbed.
-4. **Tier 2 Phase C (auto-account creation for non-member gift buyers)** — qty ≥ 4 "create login + manage from dashboard" mode. Hooks into existing `dashboard_mode=1` Slim path; only new piece is WP-side `wp_insert_user` + credentials email.
-5. **Production cutover.** PROD-CUTOVER.md has the full checklist.
+1. **PayPal activation** — account-level capability `paypal_payments` is absent. Must be enabled at https://dashboard.stripe.com/settings/payment_methods (click "Turn on" for PayPal). No code change needed; once activated it should appear in the Payment Element automatically via the default PMC.
+2. **Real-browser end-to-end test of the orphan-charge recovery flow** — Subscribe via `/lgjoin/`, click Pay, close tab before redirect. Webhook should fire → entitlement + email sent. Confirm email lands.
+3. **`charge.refunded` webhook** — handler is in code (registered for dev endpoint). Register on prod at cutover. PROD-CUTOVER.md already lists it.
+4. **Tier 2 Phase D (gift management buttons)** — Send / Resend / Reassign / Void wiring on `[lg_my_gifts]`. Slim endpoints already shipped; WP-side UI is still stubbed.
+5. **Tier 2 Phase C (auto-account creation for non-member gift buyers)** — qty ≥ 4 "create login + manage from dashboard" mode.
+6. **Production cutover.** PROD-CUTOVER.md has the full checklist.
+
+## What shipped in session 13 (this one)
+
+### Stripe Acacia → Basil migration
+
+- **`LiveStripeGateway.php`** — API version pin changed: `2024-12-18.acacia` → `2025-03-31.basil`
+- **`CheckoutService.php`** — all four session-creation methods (`createSubscriptionSession`, `createOneTimeMembershipSession`, `createGiftCheckoutSession`, `createRegionalSetupSession`) switched from `'ui_mode' => 'embedded'` to `'ui_mode' => 'custom'`. All return `['clientSecret' => ..., 'ui_mode' => 'custom']`.
+- **`PROD-CUTOVER.md`** — `APP_RETURN_SUCCESS_URL` guidance updated: now points to `/activity/` (BuddyBoss feed), not `/welcome/`.
+
+### WP plugin (`lg-patreon-stripe-poller`) — `ui_mode: 'custom'` client integration
+
+Both `[lg_join]` and `[lg_gift]` shortcodes migrated to custom checkout mode. `LGPO_VERSION` bumped `2.0.4 → 2.3.2` across the session for cache-busting.
+
+**Stripe.js**: Both shortcodes changed from `https://js.stripe.com/v3/` to `https://js.stripe.com/basil/stripe.js`.
+
+**Modal HTML**: Both modals gained:
+- `data-lg-join-modal-processing` / `data-lg-gift-modal-processing` — fullscreen spinner overlay while session loads and while confirm() runs
+- `.lg-stripe-modal` custom block — Stripe-branded header (amount, sublabel, Stripe wordmark), Payment Element mount div, inline error div, purple Pay button
+
+**JS — `lg_join`**: Variables `customCheckout`, `paymentElement`, `modalProcessingEl`, `payAmountEl`, `paySublabelEl`. Helper functions:
+- `teardownCheckoutMount()` — destroys Payment Element + custom checkout (kills Stripe's beforeunload before any redirect)
+- `mountCustomCheckout()` — calls `stripe.initCheckout({ fetchClientSecret })`, listens for `change` to populate amount + enable/disable Pay button, mounts Payment Element, reveals form on `paymentElement.on('ready', ...)`
+- `onPayClick()` — locks modal, shows spinner, calls `checkout.confirm()`, on success: hides modal + `teardownCheckoutMount()` + `window.location.href = /billing/v1/return?session_id=...`; on error: removes lock, hides spinner, shows inline error
+
+**JS — `lg_gift`**: Mirror of the above (`giftCustomCheckout`, `giftPaymentElement`, etc.), `teardownGiftMount()`, `mountGiftCustomCheckout()`, `onGiftPayClick()`.
+
+**CSS additions**: `.lg-stripe-modal` layout, `.lg-stripe-modal__pay` purple `#635BFF` Pay button (multi-selector + chained `!important` to override Elementor), `.lg-modal-processing` overlay, `@keyframes lg-pay-spin` spinner.
+
+### UX improvements shipped during dev iteration
+
+- **"Leave site?" suppressed**: after `confirm()` success, `teardownCheckoutMount()` destroys the Payment Element (and its `beforeunload` listener) before `window.location.href` fires. No browser prompt.
+- **Pay button / form sync**: custom block stays hidden + spinner shown until `paymentElement.on('ready', ...)` fires. Eliminates the ~1s window where Pay button was visible before Stripe iframe painted.
+- **Post-pay redirect target**: changed from `/welcome/` to `/activity/` (BuddyBoss member feed).
+- **Welcome modal simplified**: `Plugin::maybePrintWelcomeModal()` — removed "Manage subscription" and "Got it →" buttons, added corner X close button (`.lg-welcome-modal__close`). Removed `is_page('welcome')` skip (no longer a redirect target).
+- **Header padding reduced**: `.lg-stripe-modal__header` padding tightened from default to `12px 20px`.
+- **Stripe branding**: Stripe wordmark SVG + "Powered by Stripe — Secure payment" trust line added to both join and gift modals.
+- **NBSP placeholder fix**: empty amount/sublabel elements used `&nbsp;` as height placeholder, causing ghost rows. Fixed via `[hidden] { display: none }` CSS + JS sets `.hidden = !value`. NBSP chars in file required perl one-liners to replace (Edit tool couldn't match UTF-8 `0xC2 0xA0`).
+
+### PayPal investigation
+
+Account-level `paypal_payments` capability is absent — PayPal is not in any of the 5 Payment Method Configurations and doesn't appear in the Stripe Dashboard payment methods list. Requires Dashboard activation at https://dashboard.stripe.com/settings/payment_methods. No code change needed on our side.
+
+---
 
 ## What shipped in session 12 (this one)
 
