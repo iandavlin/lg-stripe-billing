@@ -15,7 +15,7 @@ final class LiveStripeGateway implements StripeGateway
      * version flips. Bump intentionally after testing — see Stripe API
      * changelog at https://docs.stripe.com/upgrades.
      */
-    private const STRIPE_API_VERSION = '2024-12-18.acacia';
+    private const STRIPE_API_VERSION = '2025-03-31.basil';
 
     private readonly StripeClient $stripe;
 

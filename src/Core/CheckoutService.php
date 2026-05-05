@@ -24,9 +24,14 @@ class CheckoutService
     ) {}
 
     /**
-     * Create an embedded-mode Checkout Session for a membership subscription.
+     * Create a custom-UI-mode Checkout Session for a membership subscription.
      *
-     * @return array{clientSecret:string}
+     * Custom mode (Stripe Basil 2025-03-31+) hands the form to Stripe Elements
+     * mounted in our own DOM, with a Pay button we render. This unblocks the
+     * "user clicked Pay" signal that embedded mode hides — see PICKUP for the
+     * UX motivation around the modal-close-X.
+     *
+     * @return array{clientSecret:string, ui_mode:string}
      */
     public function createSubscriptionSession(
         string  $priceId,
@@ -42,7 +47,7 @@ class CheckoutService
         $resolvedPriceId = $this->products->resolvePriceForCountry($priceId, $country);
 
         $params = [
-            'ui_mode'    => 'embedded',
+            'ui_mode'    => 'custom',
             'mode'       => 'subscription',
             'line_items' => [['price' => $resolvedPriceId, 'quantity' => 1]],
             'return_url' => $this->settings->getCheckoutReturnUrl(),
@@ -53,7 +58,10 @@ class CheckoutService
 
         $session = $this->stripe->createCheckoutSession($params);
         $this->pending->record((string) $session->id, 'subscription');
-        return ['clientSecret' => (string) $session->client_secret];
+        return [
+            'clientSecret' => (string) $session->client_secret,
+            'ui_mode'      => 'custom',
+        ];
     }
 
     /**
@@ -103,7 +111,10 @@ class CheckoutService
 
         $session = $this->stripe->createCheckoutSession($params);
         $this->pending->record((string) $session->id, 'one_time');
-        return ['clientSecret' => (string) $session->client_secret];
+        return [
+            'clientSecret' => (string) $session->client_secret,
+            'ui_mode'      => 'embedded',
+        ];
     }
 
     /**
@@ -230,6 +241,7 @@ class CheckoutService
 
         $session = $this->stripe->createCheckoutSession($params);
         $this->pending->record((string) $session->id, 'gift');
+        $giftUiMode = 'embedded';
 
         // Persist the recipient list keyed by the just-minted Stripe session ID
         // so handleGift() on /v1/return can pair them with the generated codes.
@@ -237,7 +249,10 @@ class CheckoutService
             $this->pendingRecipients->store((string) $session->id, $recipients);
         }
 
-        return ['clientSecret' => (string) $session->client_secret];
+        return [
+            'clientSecret' => (string) $session->client_secret,
+            'ui_mode'      => $giftUiMode,
+        ];
     }
 
     /**
@@ -306,7 +321,10 @@ class CheckoutService
 
         $session = $this->stripe->createCheckoutSession($params);
         $this->pending->record((string) $session->id, 'regional_verify');
-        return ['clientSecret' => (string) $session->client_secret];
+        return [
+            'clientSecret' => (string) $session->client_secret,
+            'ui_mode'      => 'embedded',
+        ];
     }
 
     /**
