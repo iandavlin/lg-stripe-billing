@@ -9,11 +9,15 @@
 - **`assets/lg-shortcodes.css`** — Added a single canonical `.lg-pay-modal*` block (shell, backdrop, card, close, body, custom, locked-state, mobile fullscreen) plus the shared `.lg-stripe-modal*` block (Stripe-branded header, amount, sublabel, Pay button, secured wordmark) and `.lg-modal-processing*` overlay. Both `[lg_join]` and `[lg_gift]` checkout modals now reference these classes — single source of truth, no more drift between the two flows.
 - **`Shortcodes.php`** — Gift modal HTML migrated from `lg-co-modal*` → `lg-pay-modal*`; join modal HTML migrated from `lg-join-co-modal*` → `lg-pay-modal*`. ~140 lines of duplicated inline `<style>` removed from both shortcodes.
 - **Gift email-only success modal** (`.lg-gift-success`) — replaces the post-`confirm()` redirect. Gift codes go out by email; there's no meaningful per-user landing page for the anon flow. New modal pops in-place with "Payment received — thank you. Your gift codes are on the way at <email>." Logged-in buyers also get a "View my gifts" CTA. Browser still fires a fire-and-forget GET to `/v1/return?session_id=...` (idempotent fast-path) so emails go out without waiting for the webhook.
-- **`LGPO_VERSION` 2.3.2 → 2.4.0** for cache-busting.
+- **Accepted-methods badge row** on `[lg_join]` — Visa / Mastercard / Amex / Apple Pay / Google Pay pills under the Continue button (inline SVGs, no external image deps). Trust signal before users open the modal. PayPal dropped — Stripe account doesn't have `paypal_payments` capability. Link dropped — not a brand customers proactively look for. Will roll out to gift + regional pages on approval.
+- **`docs/purchase-scenarios.md`** added (mirrored in plugin repo) — full buyer-state × purchase-intent × failure-mode matrix with known gaps. Top three real bugs flagged: `charge.refunded` webhook not registered on dev, no upgrade/downgrade UI for active subscribers, gift `quantity >= 2` enforced UI-side only.
+- **`LGPO_VERSION` 2.3.2 → 2.4.2** across the session for cache-busting.
 
 
 
-## NEXT — End-to-end smoke test of all four custom-mode flows on dev
+## NEXT — see `docs/purchase-scenarios.md` for the full buyer-state matrix and known-gap punch list. Top three real bugs to address before prod cutover: register `charge.refunded` on the dev webhook, add a Stripe Customer Portal tier-swap CTA for the 409 `has_active_sub` path, and server-enforce `quantity >= 2` on `/v1/checkout` for gift purchases. Continue with smoke-test below before tackling those.
+
+## Smoke test — End-to-end of all four custom-mode flows on dev
 
 Session 13 shipped the full Acacia → Basil migration and `ui_mode: 'custom'` for all four checkout flows. The code is deployed to dev but the non-subscription flows (one-time annual, gift, regional verify) haven't been fully browser smoke-tested under custom mode. Do this before any other feature work.
 
