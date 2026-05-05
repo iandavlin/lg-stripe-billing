@@ -1,6 +1,17 @@
 # Pickup — lg-stripe-billing
 
-*Last worked: 2026-05-05 (session 13)*
+*Last worked: 2026-05-05 (session 14)*
+
+## What shipped in session 14 (this one)
+
+### Unified pay-modal styling + gift email-only success state
+
+- **`assets/lg-shortcodes.css`** — Added a single canonical `.lg-pay-modal*` block (shell, backdrop, card, close, body, custom, locked-state, mobile fullscreen) plus the shared `.lg-stripe-modal*` block (Stripe-branded header, amount, sublabel, Pay button, secured wordmark) and `.lg-modal-processing*` overlay. Both `[lg_join]` and `[lg_gift]` checkout modals now reference these classes — single source of truth, no more drift between the two flows.
+- **`Shortcodes.php`** — Gift modal HTML migrated from `lg-co-modal*` → `lg-pay-modal*`; join modal HTML migrated from `lg-join-co-modal*` → `lg-pay-modal*`. ~140 lines of duplicated inline `<style>` removed from both shortcodes.
+- **Gift email-only success modal** (`.lg-gift-success`) — replaces the post-`confirm()` redirect. Gift codes go out by email; there's no meaningful per-user landing page for the anon flow. New modal pops in-place with "Payment received — thank you. Your gift codes are on the way at <email>." Logged-in buyers also get a "View my gifts" CTA. Browser still fires a fire-and-forget GET to `/v1/return?session_id=...` (idempotent fast-path) so emails go out without waiting for the webhook.
+- **`LGPO_VERSION` 2.3.2 → 2.4.0** for cache-busting.
+
+
 
 ## NEXT — End-to-end smoke test of all four custom-mode flows on dev
 
