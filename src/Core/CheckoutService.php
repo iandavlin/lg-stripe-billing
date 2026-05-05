@@ -94,7 +94,7 @@ class CheckoutService
         $resolvedPriceId = $this->products->resolvePriceForCountry($priceId, $country);
 
         $params = [
-            'ui_mode'    => 'embedded',
+            'ui_mode'    => 'custom',
             'mode'       => 'payment',
             'line_items' => [['price' => $resolvedPriceId, 'quantity' => 1]],
             'return_url' => $this->settings->getCheckoutReturnUrl(),
@@ -113,7 +113,7 @@ class CheckoutService
         $this->pending->record((string) $session->id, 'one_time');
         return [
             'clientSecret' => (string) $session->client_secret,
-            'ui_mode'      => 'embedded',
+            'ui_mode'      => 'custom',
         ];
     }
 
@@ -203,7 +203,7 @@ class CheckoutService
         };
 
         $params = [
-            'ui_mode'    => 'embedded',
+            'ui_mode'    => 'custom',
             'mode'       => 'payment',
             'line_items' => [[
                 'quantity'   => $quantity,
@@ -241,7 +241,7 @@ class CheckoutService
 
         $session = $this->stripe->createCheckoutSession($params);
         $this->pending->record((string) $session->id, 'gift');
-        $giftUiMode = 'embedded';
+        $giftUiMode = 'custom';
 
         // Persist the recipient list keyed by the just-minted Stripe session ID
         // so handleGift() on /v1/return can pair them with the generated codes.
@@ -306,7 +306,7 @@ class CheckoutService
         }
 
         $params = [
-            'ui_mode'    => 'embedded',
+            'ui_mode'    => 'custom',
             'mode'       => 'setup',
             'currency'   => $priceData['currency'],
             'customer'   => $customer->stripeCustomerId,
@@ -323,7 +323,7 @@ class CheckoutService
         $this->pending->record((string) $session->id, 'regional_verify');
         return [
             'clientSecret' => (string) $session->client_secret,
-            'ui_mode'      => 'embedded',
+            'ui_mode'      => 'custom',
         ];
     }
 
