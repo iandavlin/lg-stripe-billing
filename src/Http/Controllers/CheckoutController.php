@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use LGSB\Core\CheckoutService;
 use LGSB\Core\CustomerManager;
 use LGSB\Core\ReturnHandler;
+use LGSB\Domain\Repositories\BannedEmailsRepository;
 use LGSB\Domain\Repositories\EntitlementRepository;
 use LGSB\Domain\Repositories\ProductRepository;
 use LGSB\Domain\Repositories\SubscriptionRepository;
@@ -23,6 +24,7 @@ final class CheckoutController
         private readonly ProductRepository      $products,
         private readonly SubscriptionRepository $subscriptions,
         private readonly EntitlementRepository  $entitlements,
+        private readonly BannedEmailsRepository $bannedEmails,
     ) {}
 
     /**
@@ -94,6 +96,14 @@ final class CheckoutController
         $nameArg    = $name      !== '' ? $name      : null;
         $countryArg = $country   !== '' ? $country   : null;
         $promoArg   = $promoCode !== '' ? $promoCode : null;
+
+        // Email-level ban: independent of customers.blocked_at, survives a
+        // customer record nuke. Refuses any new subscription or gift checkout.
+        if ($emailArg !== null && $this->bannedEmails->isBanned($emailArg)) {
+            return self::json($response, [
+                'error' => 'This email address is not eligible for new purchases.',
+            ], 403);
+        }
 
         $giftDeferDays = 0;
         // Guards on existing-customer state. Gift purchases bypass these (an
