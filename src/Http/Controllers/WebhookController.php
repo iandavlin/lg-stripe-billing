@@ -12,6 +12,7 @@ use LGSB\Stripe\StripeGateway;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Stripe\Exception\SignatureVerificationException;
+use PDO;
 use Throwable;
 
 final class WebhookController
@@ -22,6 +23,7 @@ final class WebhookController
         private readonly ProductSyncHandler         $sync,
         private readonly SubscriptionWebhookHandler $subscriptions,
         private readonly ReturnHandler              $returns,
+        private readonly PDO                        $pdo,
     ) {}
 
     /** POST /v1/webhook */
@@ -93,6 +95,53 @@ final class WebhookController
             }
         } catch (Throwable $e) {
             error_log("LGSB webhook recovery for {$sessionId} threw: " . $e->getMessage());
+        }
+
+        // Trial abuse guard: one trial per physical card (fingerprint).
+        // Post-hoc: we can only check after checkout because we don't know
+        // the card until Stripe's UI completes.
+        if (($session->mode ?? '') === 'subscription') {
+            $this->enforceTrialFingerprint($session);
+        }
+    }
+
+    private function enforceTrialFingerprint(object $session): void
+    {
+        try {
+            $subId = (string) ($session->subscription ?? '');
+            if ($subId === '') {
+                return;
+            }
+
+            $sub = $this->stripe->retrieveSubscription($subId, ['default_payment_method']);
+            if (($sub->status ?? '') !== 'trialing') {
+                return;
+            }
+
+            $pmId = (string) ($sub->default_payment_method->id ?? $sub->default_payment_method ?? '');
+            if ($pmId === '') {
+                return;
+            }
+
+            $pm          = $this->stripe->retrievePaymentMethod($pmId);
+            $fingerprint = (string) ($pm->card->fingerprint ?? '');
+            if ($fingerprint === '') {
+                return; // non-card PM (SEPA, etc.) — allow trial
+            }
+
+            // Try to claim this fingerprint atomically.
+            $stmt = $this->pdo->prepare(
+                'INSERT IGNORE INTO trial_fingerprints (fingerprint) VALUES (?)'
+            );
+            $stmt->execute([$fingerprint]);
+
+            if ($stmt->rowCount() === 0) {
+                // Fingerprint already used — end the trial immediately.
+                $this->stripe->updateSubscription($subId, ['trial_end' => 'now']);
+                error_log("LGSB trial-guard: ended trial on {$subId} — fingerprint {$fingerprint} already used");
+            }
+        } catch (Throwable $e) {
+            error_log('LGSB trial-guard error: ' . $e->getMessage());
         }
     }
 

@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS trial_fingerprints (
+    fingerprint VARCHAR(32) NOT NULL,
+    used_at     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (fingerprint)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

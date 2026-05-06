@@ -115,4 +115,9 @@ final class LiveStripeGateway implements StripeGateway
     {
         $this->stripe->paymentMethods->detach($paymentMethodId);
     }
+
+    public function updateSubscription(string $subscriptionId, array $params): object
+    {
+        return $this->stripe->subscriptions->update($subscriptionId, $params);
+    }
 }

@@ -64,4 +64,6 @@ interface StripeGateway
      * check fails — no charge was ever made.
      */
     public function detachPaymentMethod(string $paymentMethodId): void;
+
+    public function updateSubscription(string $subscriptionId, array $params): object;
 }
