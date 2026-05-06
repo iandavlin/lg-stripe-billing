@@ -66,7 +66,7 @@ final class PdoProductRepository implements ProductRepository
     public function findPriceData(string $stripePriceId): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT pr.unit_amount_cents, pr.currency, pr.`interval`, pr.grants_duration_days,
+            'SELECT pr.unit_amount_cents, pr.currency, pr.`interval`, pr.grants_duration_days, pr.discount_scale, pr.trial_days,
                     p.name AS product_name, p.region_tag AS product_region_tag
              FROM prices pr
              JOIN products p ON p.id = pr.product_id
@@ -84,6 +84,8 @@ final class PdoProductRepository implements ProductRepository
             'grants_duration_days' => $row['grants_duration_days'] !== null ? (int) $row['grants_duration_days'] : null,
             'product_name'         => (string) $row['product_name'],
             'product_region_tag'   => $row['product_region_tag'] !== null ? (string) $row['product_region_tag'] : null,
+            'discount_scale'       => $row['discount_scale'] !== null ? (float) $row['discount_scale'] : 1.0,
+            'trial_days'           => (int) ($row['trial_days'] ?? 0),
         ];
     }
 
@@ -115,6 +117,8 @@ final class PdoProductRepository implements ProductRepository
         int     $priority,
         bool    $active,
         ?int    $grantsDurationDays,
+        float   $discountScale = 1.0,
+        int     $trialDays = 0,
     ): void {
         $stmt = $this->pdo->prepare(
             'SELECT id FROM products WHERE stripe_product_id = ? LIMIT 1'
@@ -128,8 +132,8 @@ final class PdoProductRepository implements ProductRepository
         $stmt = $this->pdo->prepare(
             "INSERT INTO prices
                  (product_id, stripe_price_id, type, `interval`, unit_amount_cents,
-                  currency, region_tag, priority, grants_duration_days, active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  currency, region_tag, priority, grants_duration_days, discount_scale, trial_days, active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE
                  type                 = VALUES(type),
                  `interval`           = VALUES(`interval`),
@@ -138,11 +142,13 @@ final class PdoProductRepository implements ProductRepository
                  region_tag           = VALUES(region_tag),
                  priority             = VALUES(priority),
                  grants_duration_days = VALUES(grants_duration_days),
+                 discount_scale       = VALUES(discount_scale),
+                 trial_days           = VALUES(trial_days),
                  active               = VALUES(active)"
         );
         $stmt->execute([
             $productId, $stripePriceId, $type, $interval, $unitAmountCents,
-            $currency, $regionTag, $priority, $grantsDurationDays, (int) $active,
+            $currency, $regionTag, $priority, $grantsDurationDays, $discountScale, $trialDays, (int) $active,
         ]);
     }
 
@@ -156,7 +162,7 @@ final class PdoProductRepository implements ProductRepository
         $stmt = $this->pdo->prepare(
             "SELECT p.id AS product_id, p.stripe_product_id, p.name, p.ref, p.region_tag,
                     pr.stripe_price_id, pr.type, pr.interval, pr.unit_amount_cents,
-                    pr.currency, pr.grants_duration_days
+                    pr.currency, pr.grants_duration_days, pr.discount_scale, pr.trial_days
              FROM products p
              JOIN prices pr ON pr.product_id = p.id AND pr.active = 1
              LEFT JOIN price_regions r
@@ -190,6 +196,8 @@ final class PdoProductRepository implements ProductRepository
                 'currency'             => $row['currency'],
                 'region_tag'           => $row['region_tag'],
                 'grants_duration_days' => $row['grants_duration_days'] !== null ? (int) $row['grants_duration_days'] : null,
+                'discount_scale'       => $row['discount_scale'] !== null ? (float) $row['discount_scale'] : 1.0,
+                'trial_days'           => (int) ($row['trial_days'] ?? 0),
             ];
         }
 

@@ -75,6 +75,8 @@ interface ProductRepository
         int     $priority,
         bool    $active,
         ?int    $grantsDurationDays,
+        float   $discountScale = 1.0,
+        int     $trialDays = 0,
     ): void;
 
     /**

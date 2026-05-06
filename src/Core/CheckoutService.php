@@ -44,6 +44,8 @@ class CheckoutService
             throw new InvalidArgumentException("Price {$priceId} is not mapped to a membership tier.");
         }
 
+        $priceData       = $this->products->findPriceData($priceId);
+        $trialDays       = (int) ($priceData['trial_days'] ?? 0);
         $resolvedPriceId = $this->products->resolvePriceForCountry($priceId, $country);
 
         $params = [
@@ -52,6 +54,10 @@ class CheckoutService
             'line_items' => [['price' => $resolvedPriceId, 'quantity' => 1]],
             'return_url' => $this->settings->getCheckoutReturnUrl(),
         ];
+
+        if ($trialDays > 0) {
+            $params['subscription_data'] = ['trial_period_days' => $trialDays];
+        }
 
         $this->applyPromoOrAllow($params, $promoCode);
         $this->attachCustomer($params, $email, $country, $name);
@@ -175,6 +181,7 @@ class CheckoutService
         ?string $name          = null,
         ?array  $recipients    = null,
         bool    $dashboardMode = false,
+        ?int    $durationMonths = null,
     ): array {
         if ($quantity < 1) {
             throw new InvalidArgumentException('Gift checkout requires quantity >= 1.');
@@ -190,17 +197,30 @@ class CheckoutService
             throw new InvalidArgumentException("Price {$priceId} not found.");
         }
 
-        $pricer       = BulkPricer::fromEnvString(implode(',', array_map(
+        // When duration_months is supplied the caller is using the monthly price
+        // as a base and wants N months of access. The discount scales linearly
+        // with duration so shorter gifts get proportionally less bulk discount.
+        if ($durationMonths !== null) {
+            $baseUnitCents = $priceData['unit_amount_cents'] * $durationMonths;
+            $discountScale = $durationMonths / 12.0;
+            $durationDays  = $durationMonths === 12 ? 365 : $durationMonths * 30;
+        } else {
+            $baseUnitCents = $priceData['unit_amount_cents'];
+            $discountScale = (float) ($priceData['discount_scale'] ?? 1.0);
+            $durationDays  = $priceData['grants_duration_days'] ?? match ($priceData['interval']) {
+                'year'  => 365,
+                'month' => 30,
+                default => 365,
+            };
+        }
+        $pricer    = BulkPricer::fromEnvString(implode(',', array_map(
             static fn (array $t): string => "{$t['min']}:{$t['pct']}",
             $this->settings->getBulkDiscountTiers(),
         )));
-        $unitCents    = $pricer->discountedUnitAmountCents($priceData['unit_amount_cents'], $quantity);
-        $pct          = $pricer->discountPct($quantity);
-        $durationDays = $priceData['grants_duration_days'] ?? match ($priceData['interval']) {
-            'year'  => 365,
-            'month' => 30,
-            default => 365,
-        };
+        $rawPct    = $pricer->discountPct($quantity);
+        $scaledPct = (int) round($rawPct * $discountScale);
+        $unitCents = (int) round($baseUnitCents * (1 - $scaledPct / 100));
+        $pct       = $scaledPct;
 
         $params = [
             'ui_mode'    => 'custom',

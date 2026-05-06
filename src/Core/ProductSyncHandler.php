@@ -32,10 +32,12 @@ final class ProductSyncHandler
 
     public function handlePriceEvent(object $stripePrice): void
     {
-        $meta       = $stripePrice->metadata ?? null;
-        $regionTag  = ($meta->region_tag ?? null) ?: null;
-        $priority   = isset($meta->priority)             ? (int) $meta->priority             : 100;
-        $grantsDays = isset($meta->grants_duration_days) ? (int) $meta->grants_duration_days : null;
+        $meta          = $stripePrice->metadata ?? null;
+        $regionTag     = ($meta->region_tag ?? null) ?: null;
+        $priority      = isset($meta->priority)             ? (int) $meta->priority             : 100;
+        $grantsDays    = isset($meta->grants_duration_days) ? (int) $meta->grants_duration_days : null;
+        $discountScale = isset($meta->lgms_discount_scale)  ? (float) $meta->lgms_discount_scale : 1.0;
+        $trialDays     = isset($meta->lgms_trial_days)       ? (int) $meta->lgms_trial_days       : 0;
 
         $interval = $stripePrice->type === 'recurring'
             ? (($stripePrice->recurring->interval ?? null) ?: null)
@@ -52,6 +54,8 @@ final class ProductSyncHandler
             $priority,
             (bool) $stripePrice->active,
             $grantsDays,
+            $discountScale,
+            $trialDays,
         );
     }
 }

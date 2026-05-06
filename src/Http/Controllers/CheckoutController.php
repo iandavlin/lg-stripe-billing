@@ -46,7 +46,8 @@ final class CheckoutController
         $name      = trim((string) ($body['name']       ?? ''));
         $country   = trim((string) ($body['country']    ?? ''));
         $promoCode = trim((string) ($body['promo_code'] ?? ''));
-        $quantity  = (int)        ($body['quantity']    ?? 1);
+        $quantity      = (int) ($body['quantity']      ?? 1);
+        $durationMonths = isset($body['duration_months']) ? max(1, min(36, (int) $body['duration_months'])) : null;
         $isGift    = array_key_exists('gift', $body)
             ? (bool) $body['gift']
             : $quantity >= 2;
@@ -143,7 +144,7 @@ final class CheckoutController
         try {
             if ($isGift) {
                 $result = $this->checkout->createGiftCheckoutSession(
-                    $priceId, $quantity, $emailArg, $countryArg, $promoArg, $nameArg, $recipientsArg, $dashboardMode,
+                    $priceId, $quantity, $emailArg, $countryArg, $promoArg, $nameArg, $recipientsArg, $dashboardMode, $durationMonths,
                 );
             } else {
                 $priceData = $this->products->findPriceData($priceId);

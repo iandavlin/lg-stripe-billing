@@ -10,7 +10,7 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
 - [ ] Create `/var/www/billing/lg-stripe-billing/` owned by `ubuntu`
 - [ ] Clone repo, run `composer install --no-dev`
 - [ ] Create `lg_membership_prod` MySQL DB + user
-- [ ] Apply `db/schema.sql` + every `db/migrations/NNN_*.sql` in order (001 through 007 as of session 9: `001_gift_codes`, `002_gift_voided`, `003_customers_blocked`, `004_admin_action_log`, `005_products_region_tag`, `006_gift_codes_recipients`, `007_gift_recipients_pending`) + seed (region tags only — products auto-create via `bin/stripe-import-catalog.php`)
+- [ ] Apply `db/schema.sql` + every `db/migrations/NNN_*.sql` in order (001 through 007 as of session 9, plus `009_prices_discount_scale` added session 15 — see Gift duration section below) + seed (region tags only — products auto-create via `bin/stripe-import-catalog.php`)
 - [ ] Add nginx `/billing/` location to `loothgroup.com.conf`
 - [ ] New php-fpm pool `lg-billing-live` running as `ubuntu`
 - [ ] Deploy `lg-patreon-stripe-poller` to `/var/www/html/wp-content/plugins/`
@@ -303,3 +303,40 @@ The webhook handler routes to the same idempotent `ReturnHandler::handle()` the 
 Template lives at `templates/email/welcome-membership.html.php` in the WP plugin. Edit the body there; no other config required.
 
 If a customer needs the email re-sent (support recovery): `wp user meta delete <ID> _lg_welcome_email_sent_at` then trigger any sync (visit any page or run `wp cron event run lgms_poll_tick`).
+
+## Gift duration pricing (1 / 3 / 6 month gifts)
+
+`discount_scale` column added to `prices` table. Slim app reads `lgms_discount_scale` from Stripe price metadata and stores it; `CheckoutService` multiplies the global bulk discount by this factor per duration.
+
+Migration to run on prod DB **before** deploying:
+```sql
+ALTER TABLE prices ADD COLUMN discount_scale DECIMAL(5,4) NOT NULL DEFAULT 1.0000;
+```
+
+After deploy, create gift-duration prices in the **Live** Stripe Dashboard for each tier:
+
+| Tier | Duration | Price | `lgms_gift` | `lgms_discount_scale` | `grants_duration_days` |
+|------|----------|-------|-------------|----------------------|----------------------|
+| Looth LITE | 1 month  | $5   | `true` | `0.50` | `30`  |
+| Looth LITE | 3 months | $15  | `true` | `0.70` | `90`  |
+| Looth LITE | 6 months | $30  | `true` | `0.85` | `180` |
+| Looth LITE | 1 year   | $66  | `true` | `1.00` | `365` |
+| Looth PRO  | 1 month  | $11  | `true` | `0.50` | `30`  |
+| Looth PRO  | 3 months | $33  | `true` | `0.70` | `90`  |
+| Looth PRO  | 6 months | $66  | `true` | `0.85` | `180` |
+| Looth PRO  | 1 year   | $145 | `true` | `1.00` | `365` |
+
+Each price must be:
+- **Type:** One-time (not recurring)
+- **Metadata:** set `lgms_gift=true`, `lgms_discount_scale=<value>`, `grants_duration_days=<days>`
+- **Product:** attached to the matching Looth LITE / Looth PRO product
+
+The Stripe price sync handler (`ProductSyncHandler::handlePriceEvent`) will pick up `lgms_discount_scale` automatically. After creating the prices in Stripe, run:
+```bash
+php bin/stripe-import-catalog.php db/catalog.json
+```
+or wait for the next webhook `price.created` event to sync each price into the DB.
+
+The WP gift shortcode (`[lg_gift]`) automatically detects all prices where `grants_duration_days IS NOT NULL` and renders a duration picker. No WP config change needed.
+
+Existing one-time prices (the `$66` LITE and `$145` PRO annual pay-in-full) already have `grants_duration_days = 365` and will appear as the "1 year" option until replaced or supplemented.
