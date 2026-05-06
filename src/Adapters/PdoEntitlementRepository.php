@@ -53,15 +53,18 @@ final class PdoEntitlementRepository implements EntitlementRepository
     {
         $now ??= new DateTimeImmutable();
         $nowStr = $now->format('Y-m-d H:i:s');
+        // starts_at filter excludes queued (future-dated) gift entitlements —
+        // a gift parked behind an active sub is not "active coverage" yet.
         $stmt = $this->pdo->prepare(
             "SELECT * FROM entitlements
              WHERE customer_id = ?
                AND source_type = 'gift_code'
                AND revoked_at IS NULL
+               AND starts_at <= ?
                AND (expires_at IS NULL OR expires_at > ?)
              ORDER BY id DESC"
         );
-        $stmt->execute([$customerId, $nowStr]);
+        $stmt->execute([$customerId, $nowStr, $nowStr]);
         return array_map([self::class, 'toDto'], $stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
