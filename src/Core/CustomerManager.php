@@ -56,6 +56,17 @@ class CustomerManager
             return $byEmail;
         }
 
+        // Soft-deleted? UNIQUE(email) would 500 on insert. Revive instead —
+        // the user is signing back up, give them their original record back.
+        $deleted = $this->customers->findByEmailIncludingDeleted($email);
+        if ($deleted !== null) {
+            $this->customers->undelete($deleted->id);
+            if ($stripeCustomerId !== null && $deleted->stripeCustomerId === null) {
+                $this->customers->updateStripeCustomerId($deleted->id, $stripeCustomerId);
+            }
+            return $this->customers->findById($deleted->id) ?? $deleted;
+        }
+
         return $this->customers->create($email, $name, $stripeCustomerId, $country);
     }
 }

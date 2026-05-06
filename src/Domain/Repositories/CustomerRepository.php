@@ -14,6 +14,11 @@ interface CustomerRepository
 
     public function findByEmail(string $email): ?Customer;
 
+    /** Includes soft-deleted rows — used by findOrCreate to revive instead of duplicate-key. */
+    public function findByEmailIncludingDeleted(string $email): ?Customer;
+
+    public function undelete(int $id): void;
+
     public function findByStripeCustomerId(string $stripeCustomerId): ?Customer;
 
     public function create(

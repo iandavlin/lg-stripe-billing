@@ -36,6 +36,25 @@ final class PdoCustomerRepository implements CustomerRepository
         );
     }
 
+    /**
+     * Reviving lookup — returns a soft-deleted customer if one exists for
+     * this email. Used by findOrCreate to undelete instead of crashing on
+     * the UNIQUE(email) constraint when an INSERT would conflict.
+     */
+    public function findByEmailIncludingDeleted(string $email): ?Customer
+    {
+        return $this->fetchOne(
+            'SELECT * FROM customers WHERE email = ? LIMIT 1',
+            [$email],
+        );
+    }
+
+    public function undelete(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE customers SET deleted_at = NULL WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
     public function findByStripeCustomerId(string $stripeCustomerId): ?Customer
     {
         return $this->fetchOne(
