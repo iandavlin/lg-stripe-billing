@@ -7,7 +7,9 @@ namespace LGSB\Http\Controllers;
 use LGSB\Contracts\SettingsStore;
 use LGSB\Core\WpGiftMailer;
 use LGSB\Domain\Repositories\CustomerRepository;
+use LGSB\Domain\Repositories\EntitlementRepository;
 use LGSB\Domain\Repositories\GiftCodeRepository;
+use LGSB\Domain\Repositories\SubscriptionRepository;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Psr\Log\LoggerInterface;
@@ -24,11 +26,13 @@ use Psr\Log\LoggerInterface;
 final class GiftActionController
 {
     public function __construct(
-        private readonly GiftCodeRepository  $giftCodes,
-        private readonly CustomerRepository  $customers,
-        private readonly WpGiftMailer        $mailer,
-        private readonly SettingsStore       $settings,
-        private readonly LoggerInterface     $logger,
+        private readonly GiftCodeRepository     $giftCodes,
+        private readonly CustomerRepository     $customers,
+        private readonly SubscriptionRepository $subscriptions,
+        private readonly EntitlementRepository  $entitlements,
+        private readonly WpGiftMailer           $mailer,
+        private readonly SettingsStore          $settings,
+        private readonly LoggerInterface        $logger,
     ) {}
 
     public function send(Request $request, Response $response): Response
@@ -57,6 +61,16 @@ final class GiftActionController
         if ($code->hasRecipient()) return self::json($response, ['error' => 'Code already has a recipient. Use reassign to change it.'], 409);
 
         if ($err = $this->ownershipError($code->purchasedBy, $buyerEmail)) return $err($response);
+
+        if (empty($body['acknowledged_recipient_warning'])) {
+            $warning = $this->recipientWarning($toEmail);
+            if ($warning !== null) {
+                return self::json($response, [
+                    'needs_recipient_confirmation' => true,
+                    'recipient_warning'            => $warning,
+                ]);
+            }
+        }
 
         $buyer = $this->customers->findById($code->purchasedBy);
 
@@ -124,6 +138,16 @@ final class GiftActionController
 
         if ($err = $this->ownershipError($code->purchasedBy, $buyerEmail)) return $err($response);
 
+        if (empty($body['acknowledged_recipient_warning'])) {
+            $warning = $this->recipientWarning($toEmail);
+            if ($warning !== null) {
+                return self::json($response, [
+                    'needs_recipient_confirmation' => true,
+                    'recipient_warning'            => $warning,
+                ]);
+            }
+        }
+
         $buyer = $this->customers->findById($code->purchasedBy);
 
         $this->giftCodes->updateRecipient($codeId, $toEmail, $toName ?: null, $message ?: null);
@@ -160,6 +184,46 @@ final class GiftActionController
         }
 
         return self::json($response, ['ok' => true, 'code_id' => $codeId]);
+    }
+
+    /**
+     * Look up a recipient email's account state. Returns a warning payload
+     * when the recipient already has either an active subscription (gift
+     * would stack uselessly) or an active gift entitlement (multiple gifts
+     * stack but the buyer probably wants to know). Returns null when the
+     * recipient is brand new — no warning needed.
+     *
+     * @return array{kind:string,tier?:string,expires_at?:?string,days_remaining?:int}|null
+     */
+    private function recipientWarning(string $email): ?array
+    {
+        $existing = $this->customers->findByEmail($email);
+        if ($existing === null) {
+            return null;
+        }
+
+        if ($this->subscriptions->findActiveForCustomer($existing->id) !== []) {
+            return ['kind' => 'subscription'];
+        }
+
+        $activeGifts = $this->entitlements->activeGiftsForCustomer($existing->id);
+        if ($activeGifts !== []) {
+            $top       = $activeGifts[0];
+            $expiresAt = $top->expiresAt instanceof \DateTimeImmutable ? $top->expiresAt : null;
+            $daysRemaining = 0;
+            if ($expiresAt instanceof \DateTimeImmutable) {
+                $diff = (new \DateTimeImmutable())->diff($expiresAt);
+                $daysRemaining = max(0, (int) $diff->format('%r%a'));
+            }
+            return [
+                'kind'           => 'gift',
+                'tier'           => (string) $top->ref,
+                'expires_at'     => $expiresAt ? $expiresAt->format('Y-m-d') : null,
+                'days_remaining' => $daysRemaining,
+            ];
+        }
+
+        return null;
     }
 
     private function authorized(Request $request): bool
