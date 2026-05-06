@@ -42,6 +42,36 @@ final class GiftRedemptionService
     ) {}
 
     /**
+     * Queue a gift to activate when the customer's current subscription
+     * ends. Use case: redeemer is currently subscribed and wants the gift
+     * to take over once their paid time runs out (instead of the legacy
+     * "cancel first, then redeem" wall).
+     *
+     * The gift_code is marked redeemed immediately (so it can't be
+     * double-spent), and a single entitlement row is granted with
+     * starts_at = $startsAt and expires_at = startsAt + durationDays.
+     * activeForCustomer queries already exclude future-dated rows
+     * (starts_at <= NOW), so the entitlement sits dormant until the
+     * sub ends, at which point Arbiter picks it up on next sync.
+     */
+    public function redeemQueued(int $customerId, GiftCode $giftCode, DateTimeImmutable $startsAt): array
+    {
+        $expiresAt = $startsAt->add(new DateInterval('P' . $giftCode->durationDays . 'D'));
+        $this->grantGift($customerId, $giftCode->tier, $giftCode->id, $startsAt, $expiresAt);
+        $this->giftCodes->redeem($giftCode->id, $customerId);
+        // No wpSync — role doesn't change yet (entitlement is future-dated).
+        return [
+            'ok'         => true,
+            'queued'     => true,
+            'message'    => "Gift parked — your {$giftCode->durationDays}-day {$giftCode->tier} membership will activate when your subscription ends.",
+            'customer_id'=> $customerId,
+            'tier'       => $giftCode->tier,
+            'starts_at'  => $startsAt->format(DATE_ATOM),
+            'expires_at' => $expiresAt->format(DATE_ATOM),
+        ];
+    }
+
+    /**
      * Apply a gift code for a customer.
      *
      * @return array — see redeem-result shapes below

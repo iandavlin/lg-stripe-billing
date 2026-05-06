@@ -70,8 +70,36 @@ final class RedeemController
             return self::json($response, ['error' => 'This account is not eligible to redeem gift codes. Please contact support if you believe this is in error.'], 403);
         }
 
-        if ($this->subscriptions->findActiveForCustomer($customer->id) !== []) {
-            $payload = ['error' => 'Gift codes are for new members. Your account already has an active subscription — to use a gift code, cancel your subscription and redeem once it expires.'];
+        $activeSubs = $this->subscriptions->findActiveForCustomer($customer->id);
+        if ($activeSubs !== []) {
+            // Pull the soonest-expiring active sub's period end as the queue
+            // anchor. Most users have one sub; this covers multi-sub edge cases.
+            $endsAt = null;
+            foreach ($activeSubs as $sub) {
+                $candidate = $sub->currentPeriodEnd ?? null;
+                if ($candidate instanceof \DateTimeImmutable) {
+                    if ($endsAt === null || $candidate < $endsAt) {
+                        $endsAt = $candidate;
+                    }
+                }
+            }
+
+            // Caller can opt into queuing the redemption. When set, we mint
+            // the entitlement with starts_at = sub.current_period_end so the
+            // user's gift activates the day their paid time runs out.
+            if (!empty($body['queue_until_sub_ends']) && $endsAt instanceof \DateTimeImmutable) {
+                $result = $this->service->redeemQueued($customer->id, $giftCode, $endsAt);
+                return self::json($response, $result);
+            }
+
+            // Default: surface that queueing is available so the client can
+            // offer the "Park this gift" CTA instead of the old hard wall.
+            $payload = [
+                'error'              => 'Your account already has an active subscription. Park this gift and it will activate when your subscription ends.',
+                'requires_queue'     => $endsAt instanceof \DateTimeImmutable,
+                'sub_ends_at'        => $endsAt instanceof \DateTimeImmutable ? $endsAt->format('Y-m-d') : null,
+                'queue_until_sub_ends_supported' => $endsAt instanceof \DateTimeImmutable,
+            ];
             try {
                 $portal = $this->checkout->createPortalSession($customer->id);
                 $payload['portal_url'] = $portal['url'];
