@@ -346,6 +346,40 @@ class ReturnHandler
             return ['ok' => false, 'message' => 'Gift session missing email or tier.'];
         }
 
+        // Idempotency: handle() can be invoked from CheckoutController (browser
+        // return), WebhookController (Stripe checkout.session.completed), and
+        // ReconciliationController (cron sweep). All three race on the same
+        // session_id. If gift codes already exist for this session, return the
+        // success shape without re-minting (or re-emailing).
+        $existing = $this->giftCodes->findByStripeSessionId((string) $session->id);
+        if ($existing !== []) {
+            $dashboardMode = (string) ($meta->dashboard_mode ?? '') === '1';
+            $existingCustomerId = $existing[0]->purchasedBy;
+            if ($dashboardMode) {
+                $base    = rtrim($this->settings->getHomeUrl(), '/');
+                return [
+                    'ok'           => true,
+                    'message'      => 'Gift codes already provisioned for this session (' . count($existing) . ').',
+                    'customer_id'  => $existingCustomerId,
+                    'tier'         => $tier,
+                    'quantity'     => count($existing),
+                    'redirect_url' => $base . '/my-gifts/',
+                ];
+            }
+            return [
+                'ok'           => true,
+                'message'      => 'Gift codes already provisioned for this session (' . count($existing) . ').',
+                'customer_id'  => $existingCustomerId,
+                'tier'         => $tier,
+                'quantity'     => count($existing),
+                'redirect_url' => $this->buildSuccessUrl([
+                    'kind' => 'gift',
+                    'tier' => $tier,
+                    'qty'  => (string) count($existing),
+                ]),
+            ];
+        }
+
         $stripeCustomerId = (string) ($session->customer ?? '');
         $customer = $this->customers->findOrCreate(
             $email,

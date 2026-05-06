@@ -12,6 +12,9 @@ interface GiftCodeRepository
 
     public function findByCode(string $code): ?GiftCode;
 
+    /** @return GiftCode[] All codes minted for a Stripe session (excludes voided). */
+    public function findByStripeSessionId(string $stripeSessionId): array;
+
     /**
      * @param list<array{email?:?string, name?:?string, message?:?string}>|null $recipients
      * @return GiftCode[]

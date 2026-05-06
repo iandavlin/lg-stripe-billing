@@ -130,6 +130,18 @@ final class PdoGiftCodeRepository implements GiftCodeRepository
         $stmt->execute([$redeemedBy, $giftCodeId]);
     }
 
+    public function findByStripeSessionId(string $stripeSessionId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM gift_codes
+             WHERE stripe_session_id = ? AND voided_at IS NULL
+             ORDER BY id ASC'
+        );
+        $stmt->execute([$stripeSessionId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_map([self::class, 'toDto'], $rows);
+    }
+
     public function voidByStripeSessionId(string $stripeSessionId): array
     {
         $stmt = $this->pdo->prepare(
