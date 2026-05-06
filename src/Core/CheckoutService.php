@@ -39,6 +39,7 @@ class CheckoutService
         ?string $country   = null,
         ?string $promoCode = null,
         ?string $name      = null,
+        int     $giftDeferDays = 0,
     ): array {
         if ($this->products->tierForPrice($priceId) === null) {
             throw new InvalidArgumentException("Price {$priceId} is not mapped to a membership tier.");
@@ -48,6 +49,13 @@ class CheckoutService
         $trialDays       = (int) ($priceData['trial_days'] ?? 0);
         $resolvedPriceId = $this->products->resolvePriceForCountry($priceId, $country);
 
+        // When the buyer has an active gift entitlement, defer first charge
+        // to the day the gift expires by setting trial_period_days. Override
+        // any product-level free-trial — gift defer always wins (it's the
+        // longer of the two for any sensible gift duration, and stacking
+        // them would double-defer in a confusing way).
+        $effectiveTrialDays = $giftDeferDays > 0 ? $giftDeferDays : $trialDays;
+
         $params = [
             'ui_mode'    => 'custom',
             'mode'       => 'subscription',
@@ -55,8 +63,8 @@ class CheckoutService
             'return_url' => $this->settings->getCheckoutReturnUrl(),
         ];
 
-        if ($trialDays > 0) {
-            $params['subscription_data'] = ['trial_period_days' => $trialDays];
+        if ($effectiveTrialDays > 0) {
+            $params['subscription_data'] = ['trial_period_days' => $effectiveTrialDays];
         }
 
         $this->applyPromoOrAllow($params, $promoCode);

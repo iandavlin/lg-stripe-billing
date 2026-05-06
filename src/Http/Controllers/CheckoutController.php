@@ -95,6 +95,7 @@ final class CheckoutController
         $countryArg = $country   !== '' ? $country   : null;
         $promoArg   = $promoCode !== '' ? $promoCode : null;
 
+        $giftDeferDays = 0;
         // Guards on existing-customer state. Gift purchases bypass these (an
         // active subscriber may still buy gifts for others).
         if (!$isGift && $emailArg !== null) {
@@ -114,20 +115,21 @@ final class CheckoutController
                 }
 
                 // Active-gift confirmation: if the customer is sitting on a
-                // pre-paid gift entitlement, surface that to them before
-                // they start a sub that will charge today even though their
-                // gift covers them. Cleared with acknowledged_active_gift=true.
-                $ackGift = !empty($body['acknowledged_active_gift']);
-                if (!$ackGift) {
-                    $activeGifts = $this->entitlements->activeGiftsForCustomer($existing->id);
-                    if ($activeGifts !== []) {
-                        $top = $activeGifts[0];
-                        $expiresAt = $top->expiresAt instanceof \DateTimeImmutable ? $top->expiresAt : null;
-                        $daysRemaining = 0;
-                        if ($expiresAt instanceof \DateTimeImmutable) {
-                            $diff = (new \DateTimeImmutable())->diff($expiresAt);
-                            $daysRemaining = max(0, (int) $diff->format('%r%a'));
-                        }
+                // pre-paid gift entitlement, prompt them and on confirm pass
+                // days-remaining through as trial_period_days so Stripe doesn't
+                // charge until the gift expires (no double-paying for overlap).
+                $ackGift            = !empty($body['acknowledged_active_gift']);
+                $giftDeferDays      = 0; // populated below when we have an active gift to defer to
+                $activeGifts = $this->entitlements->activeGiftsForCustomer($existing->id);
+                if ($activeGifts !== []) {
+                    $top       = $activeGifts[0];
+                    $expiresAt = $top->expiresAt instanceof \DateTimeImmutable ? $top->expiresAt : null;
+                    $daysRemaining = 0;
+                    if ($expiresAt instanceof \DateTimeImmutable) {
+                        $diff = (new \DateTimeImmutable())->diff($expiresAt);
+                        $daysRemaining = max(0, (int) $diff->format('%r%a'));
+                    }
+                    if (!$ackGift) {
                         return self::json($response, [
                             'needs_gift_confirmation' => true,
                             'active_gift' => [
@@ -137,6 +139,7 @@ final class CheckoutController
                             ],
                         ]);
                     }
+                    $giftDeferDays = $daysRemaining;
                 }
             }
         }
@@ -165,6 +168,7 @@ final class CheckoutController
                 } else {
                     $result = $this->checkout->createSubscriptionSession(
                         $priceId, $emailArg, $countryArg, $promoArg, $nameArg,
+                        $giftDeferDays,
                     );
                 }
             }
