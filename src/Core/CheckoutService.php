@@ -70,6 +70,7 @@ class CheckoutService
 
         if ($affiliateRef !== null && $affiliateRef !== '') {
             $params['metadata'] = ['affiliate_ref' => $affiliateRef];
+            $params['subscription_data']['metadata'] = ['affiliate_ref' => $affiliateRef];
         }
 
         $this->applyPromoOrAllow($params, $promoCode);
@@ -124,11 +125,12 @@ class CheckoutService
         }
 
         $params = [
-            'ui_mode'    => 'custom',
-            'mode'       => 'payment',
-            'line_items' => [['price' => $resolvedPriceId, 'quantity' => 1]],
-            'return_url' => $this->settings->getCheckoutReturnUrl(),
-            'metadata'   => $meta,
+            'ui_mode'              => 'custom',
+            'mode'                 => 'payment',
+            'line_items'           => [['price' => $resolvedPriceId, 'quantity' => 1]],
+            'return_url'           => $this->settings->getCheckoutReturnUrl(),
+            'metadata'             => $meta,
+            'payment_intent_data'  => ['metadata' => $meta],
         ];
 
         $this->applyPromoOrAllow($params, $promoCode);
@@ -281,6 +283,7 @@ class CheckoutService
         if ($affiliateRef !== null && $affiliateRef !== '') {
             $params['metadata']['affiliate_ref'] = $affiliateRef;
         }
+        $params['payment_intent_data'] = ['metadata' => $params['metadata']];
 
         $session = $this->stripe->createCheckoutSession($params);
         $this->pending->record((string) $session->id, 'gift');
@@ -360,12 +363,13 @@ class CheckoutService
         }
 
         $params = [
-            'ui_mode'    => 'custom',
-            'mode'       => 'setup',
-            'currency'   => $priceData['currency'],
-            'customer'   => $customer->stripeCustomerId,
-            'return_url' => $this->settings->getCheckoutReturnUrl(),
-            'metadata'   => $meta,
+            'ui_mode'           => 'custom',
+            'mode'              => 'setup',
+            'currency'          => $priceData['currency'],
+            'customer'          => $customer->stripeCustomerId,
+            'return_url'        => $this->settings->getCheckoutReturnUrl(),
+            'metadata'          => $meta,
+            'setup_intent_data' => ['metadata' => $meta],
         ];
 
         $session = $this->stripe->createCheckoutSession($params);
