@@ -117,8 +117,10 @@ $r3     = api('POST', "{$base}/affiliates", ['slug' => $dirty, 'label' => 'XSS T
 // creates with the sanitized slug, or it fails validation — both are acceptable.
 // What must NOT happen: a 500, or the literal '<' making it into the DB.
 assert_test('Does not return 500', $r3['code'] !== 500);
-$rawInDb = $pdo->query("SELECT slug FROM affiliates WHERE slug LIKE '%script%' OR slug LIKE '%<%'")->fetchAll();
-assert_test('No raw HTML/JS in DB slug column', $rawInDb === []);
+// The sanitizer strips < > and other chars — 'script' as a word in a slug is fine.
+// We only care that no literal angle brackets or quotes made it into the DB.
+$rawInDb = $pdo->query("SELECT slug FROM affiliates WHERE slug LIKE '%<%' OR slug LIKE '%>%' OR slug LIKE '%\"%' OR slug LIKE '%\\''%'")->fetchAll();
+assert_test('No raw HTML chars (< > " \') in DB slug column', $rawInDb === []);
 
 // ─────────────────────────────────────────────
 // T5 — List returns affiliates with counts
