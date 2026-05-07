@@ -35,11 +35,12 @@ class CheckoutService
      */
     public function createSubscriptionSession(
         string  $priceId,
-        ?string $email     = null,
-        ?string $country   = null,
-        ?string $promoCode = null,
-        ?string $name      = null,
+        ?string $email         = null,
+        ?string $country       = null,
+        ?string $promoCode     = null,
+        ?string $name          = null,
         int     $giftDeferDays = 0,
+        ?string $affiliateRef  = null,
     ): array {
         if ($this->products->tierForPrice($priceId) === null) {
             throw new InvalidArgumentException("Price {$priceId} is not mapped to a membership tier.");
@@ -67,6 +68,10 @@ class CheckoutService
             $params['subscription_data'] = ['trial_period_days' => $effectiveTrialDays];
         }
 
+        if ($affiliateRef !== null && $affiliateRef !== '') {
+            $params['metadata'] = ['affiliate_ref' => $affiliateRef];
+        }
+
         $this->applyPromoOrAllow($params, $promoCode);
         $this->attachCustomer($params, $email, $country, $name);
 
@@ -86,10 +91,11 @@ class CheckoutService
      */
     public function createOneTimeMembershipSession(
         string  $priceId,
-        ?string $email     = null,
-        ?string $country   = null,
-        ?string $promoCode = null,
-        ?string $name      = null,
+        ?string $email        = null,
+        ?string $country      = null,
+        ?string $promoCode    = null,
+        ?string $name         = null,
+        ?string $affiliateRef = null,
     ): array {
         $tier = $this->products->tierForPrice($priceId);
         if ($tier === null) {
@@ -107,17 +113,22 @@ class CheckoutService
 
         $resolvedPriceId = $this->products->resolvePriceForCountry($priceId, $country);
 
+        $meta = [
+            'checkout_type' => 'membership_annual',
+            'tier'          => $tier,
+            'price_id'      => $priceId,
+            'duration_days' => (string) $durationDays,
+        ];
+        if ($affiliateRef !== null && $affiliateRef !== '') {
+            $meta['affiliate_ref'] = $affiliateRef;
+        }
+
         $params = [
             'ui_mode'    => 'custom',
             'mode'       => 'payment',
             'line_items' => [['price' => $resolvedPriceId, 'quantity' => 1]],
             'return_url' => $this->settings->getCheckoutReturnUrl(),
-            'metadata'   => [
-                'checkout_type' => 'membership_annual',
-                'tier'          => $tier,
-                'price_id'      => $priceId,
-                'duration_days' => (string) $durationDays,
-            ],
+            'metadata'   => $meta,
         ];
 
         $this->applyPromoOrAllow($params, $promoCode);
@@ -183,13 +194,14 @@ class CheckoutService
     public function createGiftCheckoutSession(
         string  $priceId,
         int     $quantity,
-        ?string $email         = null,
-        ?string $country       = null,
-        ?string $promoCode     = null,
-        ?string $name          = null,
-        ?array  $recipients    = null,
-        bool    $dashboardMode = false,
+        ?string $email          = null,
+        ?string $country        = null,
+        ?string $promoCode      = null,
+        ?string $name           = null,
+        ?array  $recipients     = null,
+        bool    $dashboardMode  = false,
         ?int    $durationMonths = null,
+        ?string $affiliateRef   = null,
     ): array {
         if ($quantity < 1) {
             throw new InvalidArgumentException('Gift checkout requires quantity >= 1.');
@@ -266,6 +278,9 @@ class CheckoutService
         if ($dashboardMode) {
             $params['metadata']['dashboard_mode'] = '1';
         }
+        if ($affiliateRef !== null && $affiliateRef !== '') {
+            $params['metadata']['affiliate_ref'] = $affiliateRef;
+        }
 
         $session = $this->stripe->createCheckoutSession($params);
         $this->pending->record((string) $session->id, 'gift');
@@ -299,9 +314,10 @@ class CheckoutService
      */
     public function createRegionalSetupSession(
         string  $priceId,
-        ?string $email   = null,
-        ?string $country = null,
-        ?string $name    = null,
+        ?string $email        = null,
+        ?string $country      = null,
+        ?string $name         = null,
+        ?string $affiliateRef = null,
     ): array {
         $tier = $this->products->tierForPrice($priceId);
         if ($tier === null) {
@@ -333,18 +349,23 @@ class CheckoutService
             $customer   = $this->customers->findOrCreate($email, (string) $stripeCust->id, $name, $country);
         }
 
+        $meta = [
+            'checkout_type' => 'regional_verify',
+            'region_tag'    => $regionTag,
+            'price_id'      => $priceId,
+            'tier'          => $tier,
+        ];
+        if ($affiliateRef !== null && $affiliateRef !== '') {
+            $meta['affiliate_ref'] = $affiliateRef;
+        }
+
         $params = [
             'ui_mode'    => 'custom',
             'mode'       => 'setup',
             'currency'   => $priceData['currency'],
             'customer'   => $customer->stripeCustomerId,
             'return_url' => $this->settings->getCheckoutReturnUrl(),
-            'metadata'   => [
-                'checkout_type' => 'regional_verify',
-                'region_tag'    => $regionTag,
-                'price_id'      => $priceId,
-                'tier'          => $tier,
-            ],
+            'metadata'   => $meta,
         ];
 
         $session = $this->stripe->createCheckoutSession($params);

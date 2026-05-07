@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use LGSB\Http\Controllers\AffiliateController;
 use LGSB\Http\Controllers\CheckoutController;
 use LGSB\Http\Controllers\ConfigController;
 use LGSB\Http\Controllers\GiftActionController;
@@ -28,6 +29,11 @@ return function (App $app): void {
         // Cron-driven reconciliation of orphaned Stripe sessions.
         // Auth via X-LGMS-Token; called from the WP plugin's Tick::run.
         $g->post('/reconcile-pending', [ReconciliationController::class, 'reconcile']);
+
+        // Affiliate management (server-to-server, X-LGMS-Token auth)
+        $g->get( '/affiliates',        [AffiliateController::class, 'list']);
+        $g->post('/affiliates',        [AffiliateController::class, 'create']);
+        $g->get( '/affiliates/{id:\d+}/conversions', [AffiliateController::class, 'conversions']);
 
         // Buyer gift management (server-to-server from WP plugin, X-LGMS-Token auth)
         $g->post('/gift-send',     [GiftActionController::class, 'send']);

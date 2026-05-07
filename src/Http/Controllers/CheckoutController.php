@@ -42,12 +42,13 @@ final class CheckoutController
      */
     public function create(Request $request, Response $response): Response
     {
-        $body      = (array) $request->getParsedBody();
-        $priceId   = trim((string) ($body['price_id']   ?? ''));
-        $email     = trim((string) ($body['email']      ?? ''));
-        $name      = trim((string) ($body['name']       ?? ''));
-        $country   = trim((string) ($body['country']    ?? ''));
-        $promoCode = trim((string) ($body['promo_code'] ?? ''));
+        $body         = (array) $request->getParsedBody();
+        $priceId      = trim((string) ($body['price_id']   ?? ''));
+        $email        = trim((string) ($body['email']      ?? ''));
+        $name         = trim((string) ($body['name']       ?? ''));
+        $country      = trim((string) ($body['country']    ?? ''));
+        $promoCode    = trim((string) ($body['promo_code'] ?? ''));
+        $affiliateRef = trim((string) ($body['ref']        ?? ''));
         $quantity      = (int) ($body['quantity']      ?? 1);
         $durationMonths = isset($body['duration_months']) ? max(1, min(36, (int) $body['duration_months'])) : null;
         $isGift    = array_key_exists('gift', $body)
@@ -92,10 +93,11 @@ final class CheckoutController
             return self::json($response, ['error' => 'quantity must be >= 1'], 400);
         }
 
-        $emailArg   = $email     !== '' ? $email     : null;
-        $nameArg    = $name      !== '' ? $name      : null;
-        $countryArg = $country   !== '' ? $country   : null;
-        $promoArg   = $promoCode !== '' ? $promoCode : null;
+        $emailArg     = $email        !== '' ? $email        : null;
+        $nameArg      = $name         !== '' ? $name         : null;
+        $countryArg   = $country      !== '' ? $country      : null;
+        $promoArg     = $promoCode    !== '' ? $promoCode    : null;
+        $affiliateArg = $affiliateRef !== '' ? $affiliateRef : null;
 
         // Email-level ban: independent of customers.blocked_at, survives a
         // customer record nuke. Refuses any new subscription or gift checkout.
@@ -157,7 +159,8 @@ final class CheckoutController
         try {
             if ($isGift) {
                 $result = $this->checkout->createGiftCheckoutSession(
-                    $priceId, $quantity, $emailArg, $countryArg, $promoArg, $nameArg, $recipientsArg, $dashboardMode, $durationMonths,
+                    $priceId, $quantity, $emailArg, $countryArg, $promoArg, $nameArg,
+                    $recipientsArg, $dashboardMode, $durationMonths, $affiliateArg,
                 );
             } else {
                 $priceData = $this->products->findPriceData($priceId);
@@ -165,20 +168,17 @@ final class CheckoutController
                 $isOneTime  = $priceData !== null && $priceData['interval'] === null;
 
                 if ($isRegional) {
-                    // Regional prices use setup-mode checkout for billing-country
-                    // verification before any charge is made. Promo codes don't
-                    // apply here (no payment in setup mode).
                     $result = $this->checkout->createRegionalSetupSession(
-                        $priceId, $emailArg, $countryArg, $nameArg,
+                        $priceId, $emailArg, $countryArg, $nameArg, $affiliateArg,
                     );
                 } elseif ($isOneTime) {
                     $result = $this->checkout->createOneTimeMembershipSession(
-                        $priceId, $emailArg, $countryArg, $promoArg, $nameArg,
+                        $priceId, $emailArg, $countryArg, $promoArg, $nameArg, $affiliateArg,
                     );
                 } else {
                     $result = $this->checkout->createSubscriptionSession(
                         $priceId, $emailArg, $countryArg, $promoArg, $nameArg,
-                        $giftDeferDays,
+                        $giftDeferDays, $affiliateArg,
                     );
                 }
             }

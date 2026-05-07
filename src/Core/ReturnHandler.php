@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use LGSB\Adapters\PdoPendingSessionRepository;
 use LGSB\Contracts\SettingsStore;
 use LGSB\Domain\Repositories\AdminActionLogRepository;
+use LGSB\Domain\Repositories\AffiliateRepository;
 use LGSB\Domain\Repositories\GiftCodeRepository;
 use LGSB\Domain\Repositories\PendingGiftRecipientsRepository;
 use LGSB\Domain\Repositories\ProductRepository;
@@ -40,6 +41,7 @@ class ReturnHandler
         private readonly AdminActionLogRepository        $auditLog,
         private readonly PendingGiftRecipientsRepository $pendingRecipients,
         private readonly PdoPendingSessionRepository     $pending,
+        private readonly AffiliateRepository             $affiliates,
     ) {}
 
     /**
@@ -208,6 +210,7 @@ class ReturnHandler
 
         $this->entitlements->grantMembershipFromSubscription($customer->id, $tier, $sub->id);
         $this->wpSync->trigger($customer->id);
+        $this->recordAffiliateConversion($session, $customer->id, $tier);
 
         return [
             'ok'           => true,
@@ -257,6 +260,7 @@ class ReturnHandler
         );
 
         $this->wpSync->trigger($customer->id);
+        $this->recordAffiliateConversion($session, $customer->id, $tier);
 
         return [
             'ok'           => true,
@@ -315,6 +319,7 @@ class ReturnHandler
         );
 
         $this->wpSync->trigger($customer->id);
+        $this->recordAffiliateConversion($session, $customer->id, $tier);
 
         return [
             'ok'           => true,
@@ -413,6 +418,7 @@ class ReturnHandler
         $dashboardMode = (string) ($meta->dashboard_mode ?? '') === '1';
 
         $this->mailer->sendGiftCodes($email, $name ?: 'Looth Member', $codes, $dashboardMode);
+        $this->recordAffiliateConversion($session, $customer->id, $tier);
 
         if ($dashboardMode) {
             // /my-gifts/ is the dashboard slug seeded by the WP plugin.
@@ -441,6 +447,15 @@ class ReturnHandler
                 'qty'  => (string) $quantity,
             ]),
         ];
+    }
+
+    private function recordAffiliateConversion(object $session, int $customerId, string $tier): void
+    {
+        $ref = trim((string) ($session->metadata->affiliate_ref ?? ''));
+        if ($ref === '') {
+            return;
+        }
+        $this->affiliates->recordConversion($ref, $customerId, (string) $session->id, $tier);
     }
 
     private function logVerification(
