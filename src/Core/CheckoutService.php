@@ -70,7 +70,8 @@ class CheckoutService
 
         if ($affiliateRef !== null && $affiliateRef !== '') {
             $params['metadata'] = ['affiliate_ref' => $affiliateRef];
-            $params['subscription_data']['metadata'] = ['affiliate_ref' => $affiliateRef];
+            $params['subscription_data']['metadata']    = ['affiliate_ref' => $affiliateRef];
+            $params['subscription_data']['description'] = "ref: {$affiliateRef}";
         }
 
         $this->applyPromoOrAllow($params, $promoCode);
@@ -125,12 +126,15 @@ class CheckoutService
         }
 
         $params = [
-            'ui_mode'              => 'custom',
-            'mode'                 => 'payment',
-            'line_items'           => [['price' => $resolvedPriceId, 'quantity' => 1]],
-            'return_url'           => $this->settings->getCheckoutReturnUrl(),
-            'metadata'             => $meta,
-            'payment_intent_data'  => ['metadata' => $meta],
+            'ui_mode'             => 'custom',
+            'mode'                => 'payment',
+            'line_items'          => [['price' => $resolvedPriceId, 'quantity' => 1]],
+            'return_url'          => $this->settings->getCheckoutReturnUrl(),
+            'metadata'            => $meta,
+            'payment_intent_data' => [
+                'metadata'    => $meta,
+                'description' => $affiliateRef !== null && $affiliateRef !== '' ? "ref: {$affiliateRef}" : null,
+            ],
         ];
 
         $this->applyPromoOrAllow($params, $promoCode);
@@ -283,7 +287,10 @@ class CheckoutService
         if ($affiliateRef !== null && $affiliateRef !== '') {
             $params['metadata']['affiliate_ref'] = $affiliateRef;
         }
-        $params['payment_intent_data'] = ['metadata' => $params['metadata']];
+        $params['payment_intent_data'] = [
+            'metadata'    => $params['metadata'],
+            'description' => isset($params['metadata']['affiliate_ref']) ? "ref: {$params['metadata']['affiliate_ref']}" : null,
+        ];
 
         $session = $this->stripe->createCheckoutSession($params);
         $this->pending->record((string) $session->id, 'gift');
