@@ -23,9 +23,11 @@ final class PdoAffiliateRepository implements AffiliateRepository
     {
         return $this->pdo->query(
             'SELECT a.id, a.slug, a.label, a.created_at,
-                    COUNT(c.id) AS conversions
+                    COUNT(DISTINCT cl.id) AS clicks,
+                    COUNT(DISTINCT cv.id) AS conversions
              FROM affiliates a
-             LEFT JOIN affiliate_conversions c ON c.affiliate_id = a.id
+             LEFT JOIN affiliate_clicks      cl ON cl.affiliate_id = a.id
+             LEFT JOIN affiliate_conversions cv ON cv.affiliate_id = a.id
              GROUP BY a.id
              ORDER BY a.created_at DESC'
         )->fetchAll();
@@ -40,6 +42,21 @@ final class PdoAffiliateRepository implements AffiliateRepository
         $stmt = $this->pdo->prepare('SELECT * FROM affiliates WHERE id = ?');
         $stmt->execute([$id]);
         return $stmt->fetch() ?: [];
+    }
+
+    public function recordClick(string $slug): void
+    {
+        try {
+            $aff = $this->findBySlug($slug);
+            if ($aff === null) {
+                return;
+            }
+            $this->pdo->prepare(
+                'INSERT INTO affiliate_clicks (affiliate_id) VALUES (?)'
+            )->execute([(int) $aff['id']]);
+        } catch (Throwable $e) {
+            error_log('LGSB affiliate record click error: ' . $e->getMessage());
+        }
     }
 
     public function recordConversion(string $slug, int $customerId, string $stripeSessionId, string $tier): void

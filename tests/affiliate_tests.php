@@ -64,6 +64,7 @@ function api(string $method, string $url, array $body = [], string $token = ''):
 }
 
 // Clean up any test data from previous runs.
+$pdo->exec("DELETE FROM affiliate_clicks WHERE affiliate_id IN (SELECT id FROM affiliates WHERE slug LIKE 'test-%')");
 $pdo->exec("DELETE FROM affiliate_conversions WHERE stripe_session_id LIKE 'test_session_%'");
 $pdo->exec("DELETE FROM affiliates WHERE slug LIKE 'test-%'");
 
@@ -144,6 +145,31 @@ assert_test('Created affiliate appears in list', count($found) === 1);
 assert_test('Conversion count is 1', (int)($found[0]['conversions'] ?? -1) === 1);
 
 // ─────────────────────────────────────────────
+// T8 — Click tracking
+// ─────────────────────────────────────────────
+echo "\nT8: Click tracking\n";
+$r9      = api('POST', "{$base}/affiliates", ['slug' => 'test-clicks', 'label' => 'Click Test'], $token);
+$clickId = (int) ($r9['body']['id'] ?? 0);
+
+$rc1 = api('POST', "{$base}/affiliate-click", ['ref' => 'test-clicks']);
+$rc2 = api('POST', "{$base}/affiliate-click", ['ref' => 'test-clicks']);
+assert_test('Click endpoint returns 200', $rc1['code'] === 200);
+
+$stmt = $pdo->prepare('SELECT COUNT(*) FROM affiliate_clicks WHERE affiliate_id = ?');
+$stmt->execute([$clickId]);
+$clickCount = (int) $stmt->fetchColumn();
+assert_test('Two clicks recorded in DB', $clickCount === 2);
+
+$beforeClicks = (int) $pdo->query('SELECT COUNT(*) FROM affiliate_clicks')->fetchColumn();
+$rc3 = api('POST', "{$base}/affiliate-click", ['ref' => 'slug-does-not-exist']);
+$afterClicks  = (int) $pdo->query('SELECT COUNT(*) FROM affiliate_clicks')->fetchColumn();
+assert_test('Unknown slug click returns 200', $rc3['code'] === 200);
+assert_test('Unknown slug click writes no row', $afterClicks === $beforeClicks);
+
+$rc4 = api('POST', "{$base}/affiliate-click", ['ref' => 'test-clicks'], '');
+assert_test('Click endpoint needs no auth token', $rc4['code'] === 200);
+
+// ─────────────────────────────────────────────
 // T6 — Unauthorized requests are rejected
 // ─────────────────────────────────────────────
 echo "\nT6: Unauthorized requests rejected\n";
@@ -162,6 +188,7 @@ assert_test('Empty slug → 400', $r8['code'] === 400);
 // ─────────────────────────────────────────────
 // Cleanup
 // ─────────────────────────────────────────────
+$pdo->exec("DELETE FROM affiliate_clicks WHERE affiliate_id IN (SELECT id FROM affiliates WHERE slug LIKE 'test-%')");
 $pdo->exec("DELETE FROM affiliate_conversions WHERE stripe_session_id LIKE 'test_session_%'");
 $pdo->exec("DELETE FROM affiliates WHERE slug LIKE 'test-%'");
 

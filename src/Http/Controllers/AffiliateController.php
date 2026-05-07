@@ -54,6 +54,20 @@ final class AffiliateController
         return self::json($response, $row, 201);
     }
 
+    /**
+     * POST /v1/affiliate-click  body: {ref: "slug"}
+     * Public — no auth. Fire-and-forget from the browser on landing.
+     */
+    public function click(Request $request, Response $response): Response
+    {
+        $body = (array) $request->getParsedBody();
+        $slug = trim((string) ($body['ref'] ?? ''));
+        if ($slug !== '') {
+            $this->affiliates->recordClick($slug);
+        }
+        return self::json($response, ['ok' => true]);
+    }
+
     /** GET /v1/affiliates/{id}/conversions */
     public function conversions(Request $request, Response $response, array $args): Response
     {

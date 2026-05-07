@@ -35,6 +35,9 @@ return function (App $app): void {
         $g->post('/affiliates',        [AffiliateController::class, 'create']);
         $g->get( '/affiliates/{id:\d+}/conversions', [AffiliateController::class, 'conversions']);
 
+        // Public — browser fires this on landing when ?ref= is present
+        $g->post('/affiliate-click',   [AffiliateController::class, 'click']);
+
         // Buyer gift management (server-to-server from WP plugin, X-LGMS-Token auth)
         $g->post('/gift-send',     [GiftActionController::class, 'send']);
         $g->post('/gift-resend',   [GiftActionController::class, 'resend']);
