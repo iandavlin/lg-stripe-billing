@@ -27,13 +27,31 @@ final class PdoAffiliateRepository implements AffiliateRepository
                     COUNT(DISTINCT cl.id)                                    AS clicks,
                     COUNT(DISTINCT cv.id)                                    AS conversions,
                     COUNT(DISTINCT CASE WHEN cv.retention_bonus_eligible_at IS NOT NULL
-                                        THEN cv.id END)                      AS retention_eligible
+                                        THEN cv.id END)                      AS retention_eligible,
+                    COALESCE(SUM(DISTINCT db.amount_cents), 0)               AS total_debits_cents
              FROM affiliates a
              LEFT JOIN affiliate_clicks      cl ON cl.affiliate_id = a.id
              LEFT JOIN affiliate_conversions cv ON cv.affiliate_id = a.id
+             LEFT JOIN affiliate_debits      db ON db.affiliate_id = a.id
              GROUP BY a.id
              ORDER BY a.created_at DESC'
         )->fetchAll();
+    }
+
+    public function findByWpUserId(int $wpUserId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT a.*, COUNT(DISTINCT cl.id) AS clicks, COUNT(DISTINCT cv.id) AS conversions,
+                    COALESCE(SUM(db.amount_cents), 0) AS total_debits_cents
+             FROM affiliates a
+             LEFT JOIN affiliate_clicks      cl ON cl.affiliate_id = a.id
+             LEFT JOIN affiliate_conversions cv ON cv.affiliate_id = a.id
+             LEFT JOIN affiliate_debits      db ON db.affiliate_id = a.id
+             WHERE a.wp_user_id = ?
+             GROUP BY a.id LIMIT 1'
+        );
+        $stmt->execute([$wpUserId]);
+        return $stmt->fetch() ?: null;
     }
 
     public function create(string $slug, string $label): array

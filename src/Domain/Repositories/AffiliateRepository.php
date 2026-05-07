@@ -18,6 +18,9 @@ interface AffiliateRepository
     /** Update commission rates for an affiliate. */
     public function updateCommission(int $id, float $commissionPct, float $commissionPctAnnual, float $retentionBonusPct): void;
 
+    /** Find affiliate linked to a WP user ID, with counts. Returns null if none. */
+    public function findByWpUserId(int $wpUserId): ?array;
+
     /**
      * Record a click for the given affiliate slug.
      * Silently no-ops if the slug doesn't exist.

@@ -50,6 +50,7 @@ final class WebhookController
             'price.created',                'price.updated'                => $this->sync->handlePriceEvent($obj),
             'customer.subscription.updated','customer.subscription.deleted' => $this->subscriptions->handle($obj),
             'checkout.session.completed'                                   => $this->handleCheckoutCompleted($obj),
+            'charge.refunded'                                              => $this->handleChargeRefunded($obj),
             default                                                        => null,
         };
 
@@ -102,6 +103,51 @@ final class WebhookController
         // the card until Stripe's UI completes.
         if (($session->mode ?? '') === 'subscription') {
             $this->enforceTrialFingerprint($session);
+        }
+    }
+
+    /**
+     * When a charge is refunded, find the affiliate whose conversion
+     * brought in this customer and record the refund as a debit.
+     * Silently swallowed — Stripe must always get 200.
+     */
+    private function handleChargeRefunded(object $charge): void
+    {
+        try {
+            $stripeCustomerId = (string) ($charge->customer ?? '');
+            $chargeId         = (string) ($charge->id ?? '');
+            $refundedCents    = (int)   ($charge->amount_refunded ?? 0);
+
+            if ($stripeCustomerId === '' || $chargeId === '' || $refundedCents <= 0) {
+                return;
+            }
+
+            // Find the affiliate conversion for this customer.
+            $stmt = $this->pdo->prepare(
+                'SELECT ac.id, ac.affiliate_id
+                 FROM affiliate_conversions ac
+                 WHERE ac.stripe_customer_id = ?
+                 ORDER BY ac.converted_at DESC LIMIT 1'
+            );
+            $stmt->execute([$stripeCustomerId]);
+            $conversion = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$conversion) {
+                return; // not an affiliate-referred customer
+            }
+
+            $this->pdo->prepare(
+                'INSERT IGNORE INTO affiliate_debits
+                    (affiliate_id, conversion_id, stripe_charge_id, amount_cents)
+                 VALUES (?, ?, ?, ?)'
+            )->execute([
+                (int) $conversion['affiliate_id'],
+                (int) $conversion['id'],
+                $chargeId,
+                $refundedCents,
+            ]);
+        } catch (Throwable $e) {
+            error_log('LGSB affiliate refund debit error: ' . $e->getMessage());
         }
     }
 
