@@ -455,7 +455,8 @@ class ReturnHandler
         if ($ref === '') {
             return;
         }
-        $this->affiliates->recordConversion($ref, $customerId, (string) $session->id, $tier);
+        $stripeCustomerId = trim((string) ($session->customer ?? ''));
+        $this->affiliates->recordConversion($ref, $customerId, $stripeCustomerId, (string) $session->id, $tier);
     }
 
     private function logVerification(
