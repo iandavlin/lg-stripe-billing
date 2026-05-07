@@ -16,7 +16,8 @@ require_once __DIR__ . '/../vendor/autoload.php';
 Dotenv\Dotenv::createImmutable(dirname(__DIR__))->load();
 
 $token   = $_ENV['LGMS_SHARED_SECRET'] ?? '';
-$base    = 'http://localhost/billing/v1';
+$base    = 'https://127.0.0.1/billing/v1';
+$devHost = parse_url($_ENV['APP_HOME_URL'] ?? 'dev.loothgroup.com', PHP_URL_HOST) ?: 'dev.loothgroup.com';
 $dsn     = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
     $_ENV['DB_HOST'] ?? '127.0.0.1',
     $_ENV['DB_PORT'] ?? '3306',
@@ -42,12 +43,16 @@ function assert_test(string $name, bool $ok, string $detail = ''): void {
 }
 
 function api(string $method, string $url, array $body = [], string $token = ''): array {
+    global $devHost;
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
         CURLOPT_CUSTOMREQUEST  => $method,
         CURLOPT_HTTPHEADER     => array_filter([
             'Content-Type: application/json',
+            "Host: {$devHost}",
             $token ? "X-LGMS-Token: {$token}" : null,
         ]),
         CURLOPT_POSTFIELDS     => $body ? json_encode($body) : null,
