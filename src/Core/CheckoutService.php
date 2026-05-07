@@ -71,7 +71,7 @@ class CheckoutService
         if ($affiliateRef !== null && $affiliateRef !== '') {
             $params['metadata'] = ['affiliate_ref' => $affiliateRef];
             $params['subscription_data']['metadata']    = ['affiliate_ref' => $affiliateRef];
-            $params['subscription_data']['description'] = "ref: {$affiliateRef}";
+            $params['subscription_data']['description'] = "Subscription update, ref: {$affiliateRef}";
         }
 
         $this->applyPromoOrAllow($params, $promoCode);
