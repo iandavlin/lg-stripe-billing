@@ -12,15 +12,17 @@
  *   T6 - Conversion count increments after recording (DB layer direct)
  */
 
-$env = parse_ini_file(__DIR__ . '/../.env');
-$token   = $env['LGMS_SHARED_SECRET'] ?? '';
+require_once __DIR__ . '/../vendor/autoload.php';
+Dotenv\Dotenv::createImmutable(dirname(__DIR__))->load();
+
+$token   = $_ENV['LGMS_SHARED_SECRET'] ?? '';
 $base    = 'http://localhost/billing/v1';
 $dsn     = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
-    $env['DB_HOST'] ?? '127.0.0.1',
-    $env['DB_PORT'] ?? '3306',
-    $env['DB_NAME'] ?? 'lg_membership',
+    $_ENV['DB_HOST'] ?? '127.0.0.1',
+    $_ENV['DB_PORT'] ?? '3306',
+    $_ENV['DB_NAME'] ?? 'lg_membership',
 );
-$pdo = new PDO($dsn, $env['DB_USER'] ?? '', $env['DB_PASSWORD'] ?? '', [
+$pdo = new PDO($dsn, $_ENV['DB_USER'] ?? '', $_ENV['DB_PASSWORD'] ?? '', [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
 ]);
@@ -94,7 +96,6 @@ assert_test('Only one row exists after two inserts', $count === 1);
 // T3 — Non-existent ref is silently ignored
 // ─────────────────────────────────────────────
 echo "\nT3: Non-existent ref is silently ignored\n";
-require_once __DIR__ . '/../vendor/autoload.php';
 $repo = new LGSB\Adapters\PdoAffiliateRepository($pdo);
 $before = (int) $pdo->query('SELECT COUNT(*) FROM affiliate_conversions')->fetchColumn();
 $repo->recordConversion('this-slug-does-not-exist', 1, 'test_session_noref', 'looth2');
