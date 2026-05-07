@@ -6,8 +6,11 @@
  *
  * For each affiliate conversion that hit the 1-year mark:
  *   1. Checks Stripe to confirm the customer still has an active subscription.
- *   2. Marks the conversion retention_bonus_eligible_at = NOW().
- *   3. Prints a payout report.
+ *   2. Sums all paid invoices for that customer between converted_at and
+ *      converted_at + 1 year (their actual first-year spend).
+ *   3. Applies retention_bonus_pct to that real total.
+ *   4. Prints a payout report by affiliate.
+ *   5. Marks each eligible conversion in the DB (unless --dry-run).
  *
  * Usage:
  *   php bin/poll-retention.php [--dry-run]
@@ -23,9 +26,9 @@ $dryRun = in_array('--dry-run', $argv ?? [], true);
 
 $pdo = new PDO(
     sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
-        $_ENV['DB_HOST']     ?? '127.0.0.1',
-        $_ENV['DB_PORT']     ?? '3306',
-        $_ENV['DB_NAME']     ?? '',
+        $_ENV['DB_HOST'] ?? '127.0.0.1',
+        $_ENV['DB_PORT'] ?? '3306',
+        $_ENV['DB_NAME'] ?? '',
     ),
     $_ENV['DB_USER']     ?? '',
     $_ENV['DB_PASSWORD'] ?? '',
@@ -48,14 +51,13 @@ $payouts = [];
 
 foreach ($candidates as $row) {
     $stripeCustomerId = $row['stripe_customer_id'];
-    $slug             = $row['slug'];
-    $label            = $row['label'];
     $bonusPct         = (float) $row['retention_bonus_pct'];
     $email            = $row['email'] ?? $stripeCustomerId;
-    $convertedAt      = $row['converted_at'];
+    $convertedAt      = new DateTimeImmutable($row['converted_at']);
+    $yearEnd          = $convertedAt->modify('+1 year');
     $conversionId     = (int) $row['id'];
 
-    // Check for active subscription on this Stripe customer.
+    // Confirm still subscribed.
     try {
         $subs = $stripe->subscriptions->all([
             'customer' => $stripeCustomerId,
@@ -72,24 +74,48 @@ foreach ($candidates as $row) {
         continue;
     }
 
-    $sub        = $subs->data[0];
-    $planAmount = $sub->items->data[0]->price->unit_amount ?? 0; // cents
-    $interval   = $sub->items->data[0]->price->recurring->interval ?? 'month';
-    // Annualise for bonus calculation: monthly × 12 or annual × 1
-    $annualCents = $interval === 'year' ? $planAmount : $planAmount * 12;
-    $bonusAmount = round(($annualCents / 100) * ($bonusPct / 100), 2);
+    // Sum all paid invoices in the first year.
+    $totalCents = 0;
+    $params = [
+        'customer' => $stripeCustomerId,
+        'status'   => 'paid',
+        'created'  => [
+            'gte' => $convertedAt->getTimestamp(),
+            'lte' => $yearEnd->getTimestamp(),
+        ],
+        'limit' => 100,
+    ];
 
-    echo sprintf("  ELIGIBLE  %-30s  affiliate: %-15s  bonus: $%.2f (%s%%)\n",
-        $email, $slug, $bonusAmount, $bonusPct
+    try {
+        do {
+            $invoices = $stripe->invoices->all($params);
+            foreach ($invoices->data as $inv) {
+                $totalCents += (int) ($inv->amount_paid ?? 0);
+            }
+            if ($invoices->has_more) {
+                $params['starting_after'] = end($invoices->data)->id;
+            }
+        } while ($invoices->has_more);
+    } catch (\Throwable $e) {
+        echo "  SKIP  {$email} — invoice fetch error: {$e->getMessage()}\n";
+        continue;
+    }
+
+    $totalUsd    = $totalCents / 100;
+    $bonusAmount = round($totalUsd * ($bonusPct / 100), 2);
+
+    echo sprintf("  ELIGIBLE  %-30s  affiliate: %-15s  year total: $%.2f  bonus: $%.2f (%s%%)\n",
+        $email, $row['slug'], $totalUsd, $bonusAmount, $bonusPct
     );
 
     $payouts[] = [
         'conversion_id'      => $conversionId,
-        'affiliate_slug'     => $slug,
-        'affiliate_label'    => $label,
+        'affiliate_slug'     => $row['slug'],
+        'affiliate_label'    => $row['label'],
         'customer_email'     => $email,
         'stripe_customer_id' => $stripeCustomerId,
-        'converted_at'       => $convertedAt,
+        'converted_at'       => $row['converted_at'],
+        'year_total_usd'     => $totalUsd,
         'bonus_pct'          => $bonusPct,
         'bonus_amount_usd'   => $bonusAmount,
     ];
@@ -112,10 +138,10 @@ if (!empty($payouts)) {
     foreach ($payouts as $p) {
         $byAffiliate[$p['affiliate_label']][] = $p;
     }
-    foreach ($byAffiliate as $affiliateLabel => $rows) {
+    foreach ($byAffiliate as $label => $rows) {
         $subtotal = array_sum(array_column($rows, 'bonus_amount_usd'));
         echo sprintf("    %-20s  %d conversion(s)  $%.2f\n",
-            $affiliateLabel, count($rows), $subtotal
+            $label, count($rows), $subtotal
         );
     }
 }
