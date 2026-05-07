@@ -68,7 +68,7 @@ final class AffiliateController
     private function authorized(Request $request): bool
     {
         $token    = $request->getHeaderLine('X-LGMS-Token');
-        $expected = $this->settings->getSharedSecret();
+        $expected = $this->settings->getSyncSharedSecret();
         return $expected !== '' && hash_equals($expected, $token);
     }
 

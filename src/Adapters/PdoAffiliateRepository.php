@@ -36,9 +36,10 @@ final class PdoAffiliateRepository implements AffiliateRepository
         $this->pdo->prepare(
             'INSERT INTO affiliates (slug, label) VALUES (?, ?)'
         )->execute([$slug, $label]);
-        $id = (int) $this->pdo->lastInsertId();
-        return $this->pdo->prepare('SELECT * FROM affiliates WHERE id = ?')
-            ->execute([$id]) ? ($this->pdo->query("SELECT * FROM affiliates WHERE id = {$id}")->fetch() ?: []) : [];
+        $id   = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('SELECT * FROM affiliates WHERE id = ?');
+        $stmt->execute([$id]);
+        return $stmt->fetch() ?: [];
     }
 
     public function recordConversion(string $slug, int $customerId, string $stripeSessionId, string $tier): void
