@@ -30,11 +30,28 @@ Add to this list whenever a dev-only setup step is taken that has no code equiva
     - Enable "Customers can cancel subscriptions" (default on)
     - Enable "Update payment methods" + "Update billing information" (defaults on)
 
+## Security cutover (do not skip)
+
+- [ ] **DO NOT copy dev `.env` to prod** — generate prod values fresh. A leaked dev secret should not unlock prod.
+- [ ] Generate fresh `LGMS_SHARED_SECRET` for prod: `openssl rand -hex 32` — copy to both Slim's `.env` and the WP plugin's `lgms_shared_secret` setting. Verify they match.
+- [ ] Generate prod `STRIPE_WEBHOOK_SECRET` by registering a *new* webhook endpoint in Stripe Dashboard for the prod URL. Do not reuse the dev secret.
+- [ ] `APP_DEBUG=false` (or unset) — phpdotenv keeps strings, the literal `false` is now correctly handled (see `App.php`, sessions 16+). Anything other than `true`/`1`/`yes`/`on` suppresses error details.
+- [ ] `APP_ENV=prod`
+- [ ] `wp-config.php`: `WP_DEBUG = false`, `WP_DEBUG_DISPLAY = false` (display is false on dev too — keep it that way).
+- [ ] `.env` perms: `chmod 600 /var/www/billing/lg-stripe-billing/.env` and `chown ubuntu:ubuntu`. Verify `ls -la .env` shows `-rw-------`.
+- [ ] Run `composer audit` on both repos — no Critical or High CVEs in the dependency tree.
+- [ ] Smoke-test on prod: hit a deliberately-broken Slim URL, confirm response is generic (no stack trace, no file paths, no SQL).
+- [ ] Smoke-test gift-auth rate limit: 21 calls from one IP should yield HTTP 429 on the 21st (per-IP cap is 20/hr); 6 wrong-password attempts on a real account should yield 429 on the 6th (per-email cap is 5/15min).
+- [ ] Audit log spot-check: cancel a test subscription as admin, verify a row appears in the audit log table with admin user / action / target.
+- [ ] Verify the WP plugin's tick is acquiring `GET_LOCK('lgms_tick_lock')` (concurrent /run-now should log "tick SKIPPED").
+
 ## Environment (.env)
 
 - [ ] `STRIPE_SECRET_KEY` — live key
 - [ ] `STRIPE_PUBLISHABLE_KEY` — live key
-- [ ] `STRIPE_WEBHOOK_SECRET` — prod webhook secret
+- [ ] `STRIPE_WEBHOOK_SECRET` — prod webhook secret (fresh, not dev's)
+- [ ] `APP_ENV=prod`
+- [ ] `APP_DEBUG=false` (or omit entirely)
 - [ ] `APP_BASE_URL=https://loothgroup.com/billing`
 - [ ] `APP_BASE_PATH=billing`
 - [ ] `APP_HOME_URL=https://loothgroup.com`
