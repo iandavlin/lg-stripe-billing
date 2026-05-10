@@ -30,11 +30,11 @@ final class App
 
         $app->addRoutingMiddleware();
         $app->addBodyParsingMiddleware();
-        $app->addErrorMiddleware(
-            (bool) ($_ENV['APP_DEBUG'] ?? false),
-            true,
-            true,
-        );
+        // phpdotenv keeps values as strings; (bool) "false" is TRUE in PHP.
+        // Match against literal "true"/"1"/"yes"/"on" so a typo can't leak
+        // stack traces in production.
+        $debug = in_array(strtolower((string) ($_ENV['APP_DEBUG'] ?? '')), ['true', '1', 'yes', 'on'], true);
+        $app->addErrorMiddleware($debug, true, true);
 
         (require $rootDir . '/config/routes.php')($app);
 
