@@ -22,6 +22,14 @@ final class WpSync
             return;
         }
 
+        // Reject anything other than http/https up front. Defends against
+        // gopher://, file://, dict://, etc. in case curl is built with them.
+        $parts  = parse_url($url);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return;
+        }
+
         $ch = curl_init($url);
         if ($ch === false) {
             return;
@@ -40,11 +48,9 @@ final class WpSync
         // See WpGiftMailer::resolveToLoopback — Cloudflare's bot challenge
         // intercepts internal server-to-server PHP-curl calls, so we pin
         // resolution to 127.0.0.1 to hit origin nginx directly.
-        $parts = parse_url($url);
-        $host  = $parts['host'] ?? '';
+        $host = $parts['host'] ?? '';
         if ($host !== '') {
-            $scheme = $parts['scheme'] ?? 'https';
-            $port   = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
+            $port = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
             curl_setopt($ch, CURLOPT_RESOLVE, ["{$host}:{$port}:127.0.0.1"]);
         }
         @curl_exec($ch);
